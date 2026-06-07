@@ -1,4 +1,4 @@
-FROM node:22-slim AS deps
+FROM node:22-trixie-slim AS deps
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
@@ -9,7 +9,7 @@ WORKDIR /app
 COPY . .
 RUN pnpm run build
 
-FROM node:22-slim AS runner
+FROM node:22-trixie-slim AS runner
 ENV NODE_ENV=production
 ENV PORT=8080
 WORKDIR /app
