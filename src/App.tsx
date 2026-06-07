@@ -619,7 +619,6 @@ export function App() {
                   >
                     <span className="priority-chip">{nextQuestion.priority}</span>
                     <h3>{nextQuestion.question}</h3>
-                    <p>{nextQuestion.reason}</p>
                   </article>
                 ))}
               </div>
