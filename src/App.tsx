@@ -136,11 +136,6 @@ const defaultAnalysis: CopilotAnalysis = {
       priority: "medium",
       question: "What made that moment painful enough to notice?",
       reason: "Keeps the call anchored on cost and consequence instead of opinions."
-    },
-    {
-      priority: "low",
-      question: "I may be early here, so stop me if this is not real yet.",
-      reason: "A light statement that disarms the pitch and invites correction."
     }
   ]
 };
@@ -611,7 +606,7 @@ export function App() {
                 try next
               </span>
               <div className="question-list">
-                {analysis.nextQuestions.map((nextQuestion, index) => (
+                {analysis.nextQuestions.slice(0, 2).map((nextQuestion, index) => (
                   <article
                     key={`${nextQuestion.question}-${index}`}
                     className={`question-card ${nextQuestion.priority}`}

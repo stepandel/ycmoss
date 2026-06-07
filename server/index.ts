@@ -149,11 +149,6 @@ const defaultAnalysis: CopilotAnalysis = {
       priority: "medium",
       question: "What made that moment painful enough to notice?",
       reason: "Keeps the call anchored on cost and consequence instead of opinions."
-    },
-    {
-      priority: "low",
-      question: "I may be early here, so stop me if this is not real yet.",
-      reason: "A light statement that disarms the pitch and invites correction."
     }
   ]
 };
@@ -319,7 +314,7 @@ function parseCopilotAnalysis(value: unknown): CopilotAnalysis {
   const record = value as Record<string, unknown>;
   const stage = isDiscoveryStage(record.stage) ? record.stage : defaultAnalysis.stage;
   const nextQuestions = Array.isArray(record.nextQuestions)
-    ? record.nextQuestions.map(parseNextQuestion).filter((question): question is NextQuestion => Boolean(question)).slice(0, 3)
+    ? record.nextQuestions.map(parseNextQuestion).filter((question): question is NextQuestion => Boolean(question)).slice(0, 2)
     : [];
 
   return {
@@ -345,7 +340,7 @@ async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
       {
         role: "system",
         content:
-          `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage and recommend 1-3 concise next questions. Do not invent facts. Prefer questions that move the rep toward concrete past behavior, cost, consequence, active search, commitment, and a concrete next step.\n\nDiscovery stages:\n${discoveryStagePrompt}\n\nRespond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}]}. The stage must be exactly one of: ${discoveryStages.join("; ")}.`
+          `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage and recommend 1-2 concise next questions or statements. Do not invent facts. Prefer prompts that move the rep toward concrete past behavior, cost, consequence, active search, commitment, and a concrete next step.\n\nDiscovery stages:\n${discoveryStagePrompt}\n\nRespond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}]}. The stage must be exactly one of: ${discoveryStages.join("; ")}.`
       },
       {
         role: "user",
