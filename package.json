@@ -6,15 +6,21 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "dev": "concurrently \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:all": "concurrently \"npm:dev:api\" \"npm:dev:web\" \"npm:dev:stt\"",
     "dev:api": "node server/index.mjs",
+    "dev:stt": "node agents/transcriber.mjs dev",
     "dev:web": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
     "start": "node server/index.mjs",
+    "start:stt": "node agents/transcriber.mjs start",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
+    "@livekit/agents": "^1.4.5",
+    "@livekit/agents-plugin-silero": "^1.4.5",
     "@livekit/components-react": "^2.9.14",
     "@livekit/components-styles": "^1.1.6",
+    "@livekit/rtc-node": "^0.13.29",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "livekit-client": "^2.9.9",

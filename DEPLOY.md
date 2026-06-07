@@ -49,7 +49,7 @@ The Docker image uses pnpm through Corepack. Local development uses the same pac
 
 ```bash
 pnpm install
-pnpm dev
+pnpm dev:all
 ```
 
 Open the two prototype paths:
@@ -60,3 +60,14 @@ https://ycmoss.fly.dev/prospect
 ```
 
 Both pages join the same default room. Add `?room=some-room-name` to put both people into a specific shared room.
+
+## LiveKit STT Worker
+
+Live transcription requires the web/API server and the LiveKit Agents worker:
+
+```bash
+pnpm start
+pnpm start:stt
+```
+
+Run them as separate long-running processes in production. The worker joins rooms as a silent transcriber and publishes speech-to-text segments back to the UI through LiveKit's `lk.transcription` text stream.
