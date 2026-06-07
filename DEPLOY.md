@@ -32,32 +32,17 @@ Deploy:
 fly deploy
 ```
 
-## GitHub Actions Deploy
+## Fly Pipeline Deploy
 
-This repo includes `.github/workflows/fly.yml`, which builds the app and deploys to Fly on every push to `main`. It can also be run manually from the GitHub Actions tab.
+This project is deployed through Fly's own pipeline, not GitHub Actions.
 
-Create a Fly deploy token:
-
-```bash
-fly tokens create deploy -a ycmoss
-```
-
-Store it in GitHub:
+Use the Fly dashboard/pipeline connection for automatic deploys from the GitHub repo. Keep runtime secrets configured in Fly, not in GitHub Actions:
 
 ```bash
-gh secret set FLY_API_TOKEN --repo stepandel/ycmoss --body "your-fly-deploy-token"
-```
-
-The workflow uses Fly's official GitHub Actions setup:
-
-```yaml
-uses: superfly/flyctl-actions/setup-flyctl@master
-```
-
-It deploys explicitly to the app configured in `fly.toml`:
-
-```bash
-flyctl deploy --remote-only -a ycmoss
+fly secrets set LIVEKIT_URL="wss://your-project.livekit.cloud" -a ycmoss
+fly secrets set LIVEKIT_API_KEY="your-livekit-api-key" -a ycmoss
+fly secrets set LIVEKIT_API_SECRET="your-livekit-api-secret" -a ycmoss
+fly secrets set OPENAI_API_KEY="your-openai-api-key" -a ycmoss
 ```
 
 The Docker image uses pnpm through Corepack. Local development uses the same package manager:
