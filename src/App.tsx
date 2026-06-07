@@ -5,6 +5,7 @@ import {
   LiveKitRoom,
   ParticipantTile,
   RoomAudioRenderer,
+  useTranscriptions,
   useTracks
 } from "@livekit/components-react";
 import { Track } from "livekit-client";
@@ -31,6 +32,7 @@ type TranscriptTurn = {
   speaker: Speaker;
   text: string;
   timestamp: string;
+  final: boolean;
 };
 
 type Suggestion =
@@ -102,6 +104,37 @@ function VideoGrid() {
   );
 }
 
+function speakerFromIdentity(identity: string): Speaker {
+  return identity.toLowerCase().includes("founder") || identity.toLowerCase().includes("rep") ? "rep" : "prospect";
+}
+
+type LiveTranscriptionBridgeProps = {
+  onTranscript: (turn: TranscriptTurn) => void;
+};
+
+function LiveTranscriptionBridge({ onTranscript }: LiveTranscriptionBridgeProps) {
+  const transcriptions = useTranscriptions();
+
+  useEffect(() => {
+    transcriptions.forEach((transcription) => {
+      const segmentId = transcription.streamInfo.attributes?.["lk.segment_id"] ?? transcription.streamInfo.id;
+      const isFinal = transcription.streamInfo.attributes?.["lk.transcription_final"] === "true";
+      const text = transcription.text.trim();
+      if (!text) return;
+
+      onTranscript({
+        id: segmentId,
+        speaker: speakerFromIdentity(transcription.participantInfo.identity),
+        text,
+        timestamp: new Date().toISOString(),
+        final: isFinal
+      });
+    });
+  }, [onTranscript, transcriptions]);
+
+  return null;
+}
+
 export function App() {
   const initialParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const routeMode = useMemo(getRouteMode, []);
@@ -124,6 +157,7 @@ export function App() {
   });
   const [connectionState, setConnectionState] = useState("connecting");
   const wsRef = useRef<WebSocket | null>(null);
+  const sentLiveTranscriptIdsRef = useRef<Set<string>>(new Set());
   const callId = roomName;
 
   useEffect(() => {
@@ -184,13 +218,34 @@ export function App() {
       id: crypto.randomUUID(),
       speaker: nextSpeaker,
       text: cleanText,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      final: true
     };
 
     setTranscript((current) => [...current, turn]);
     wsRef.current.send(JSON.stringify({ type: "transcript.turn", callId, ...turn, final: true }));
     setDraft("");
   }
+
+  const handleLiveTranscript = useMemo(
+    () => (turn: TranscriptTurn) => {
+      setTranscript((current) => {
+        const existingIndex = current.findIndex((item) => item.id === turn.id);
+        if (existingIndex === -1) return [...current, turn];
+
+        const next = [...current];
+        next[existingIndex] = { ...next[existingIndex], ...turn };
+        return next;
+      });
+
+      if (!turn.final || sentLiveTranscriptIdsRef.current.has(turn.id)) return;
+      sentLiveTranscriptIdsRef.current.add(turn.id);
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: "transcript.turn", callId, ...turn }));
+      }
+    },
+    [callId]
+  );
 
   function runDemo() {
     demoTurns.forEach((turn, index) => {
@@ -247,6 +302,7 @@ export function App() {
               audio
               className="livekit-room"
             >
+              <LiveTranscriptionBridge onTranscript={handleLiveTranscript} />
               <VideoGrid />
               <RoomAudioRenderer />
               <ControlBar />
@@ -301,10 +357,10 @@ export function App() {
             </div>
             <div className="transcript-list">
               {transcript.length === 0 ? (
-                <p className="muted">Send a transcript turn or run the demo to see the co-pilot react.</p>
+                <p className="muted">Live speech-to-text appears here during the room. You can still send a manual turn or run the demo.</p>
               ) : (
                 transcript.map((turn) => (
-                  <article key={turn.id} className={`turn ${turn.speaker}`}>
+                  <article key={turn.id} className={`turn ${turn.speaker}${turn.final ? "" : " interim"}`}>
                     <span>{turn.speaker === "rep" ? "Founder" : "Prospect"}</span>
                     <p>{turn.text}</p>
                   </article>

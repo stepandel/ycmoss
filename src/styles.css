@@ -251,6 +251,10 @@ input:focus {
   border-color: #c5d9ed;
 }
 
+.turn.interim {
+  opacity: 0.72;
+}
+
 .turn span {
   display: block;
   margin-bottom: 4px;
