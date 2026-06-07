@@ -660,6 +660,7 @@ async function retrieveMossContext(call: CallState): Promise<MossContextSnippet[
 
 async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
   const model = process.env.MINIMAX_MODEL ?? "MiniMax-M3";
+  const startedAt = Date.now();
   const mossContext = await retrieveMossContext(call);
   const messages = [
     {
@@ -684,13 +685,26 @@ async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
     messages
   });
 
-  const response = await llm.chat.completions.create({
-    model,
-    temperature: 0.2,
-    response_format: { type: "json_object" },
-    extra_body: { thinking: { type: "disabled" } },
-    messages
-  } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
+  let response: OpenAI.Chat.Completions.ChatCompletion;
+  try {
+    response = await llm.chat.completions.create(
+      {
+        model,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        extra_body: { thinking: { type: "disabled" } },
+        messages
+      } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+      { timeout: 45_000 }
+    );
+  } catch (error) {
+    console.error("llm_analysis_error", {
+      model,
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : error
+    });
+    throw error;
+  }
 
   const rawContent = response.choices[0]?.message?.content ?? "{}";
   const parsedLlmAnalysis = parseLlmAnalysis(parseJsonModelContent(rawContent));
@@ -701,6 +715,7 @@ async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
   };
   console.info("llm_analysis_response", {
     model,
+    durationMs: Date.now() - startedAt,
     usage: response.usage,
     rawContent,
     parsedAnalysis,
@@ -731,6 +746,7 @@ async function analyzeCallIfDue(call: CallState): Promise<CopilotAnalysis> {
 
 async function runPitchDriftClassifier(call: CallState): Promise<PitchDriftAnalysis> {
   const model = process.env.MINIMAX_PITCH_DRIFT_MODEL ?? process.env.MINIMAX_MODEL ?? "MiniMax-M3";
+  const startedAt = Date.now();
   const recentTranscript = call.transcript.slice(-12);
   const messages = [
     {
@@ -753,18 +769,32 @@ async function runPitchDriftClassifier(call: CallState): Promise<PitchDriftAnaly
     messages
   });
 
-  const response = await llm.chat.completions.create({
-    model,
-    temperature: 0,
-    response_format: { type: "json_object" },
-    extra_body: { thinking: { type: "disabled" } },
-    messages
-  } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
+  let response: OpenAI.Chat.Completions.ChatCompletion;
+  try {
+    response = await llm.chat.completions.create(
+      {
+        model,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        extra_body: { thinking: { type: "disabled" } },
+        messages
+      } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+      { timeout: 45_000 }
+    );
+  } catch (error) {
+    console.error("pitch_drift_error", {
+      model,
+      durationMs: Date.now() - startedAt,
+      error: error instanceof Error ? error.message : error
+    });
+    throw error;
+  }
 
   const rawContent = response.choices[0]?.message?.content ?? "{}";
   const parsedPitchDrift = parsePitchDriftAnalysis(parseJsonModelContent(rawContent));
   console.info("pitch_drift_response", {
     model,
+    durationMs: Date.now() - startedAt,
     usage: response.usage,
     rawContent,
     parsedPitchDrift
@@ -860,6 +890,14 @@ async function ingestTranscriptTurn(callId: string, body: TranscriptIngestReques
     timestamp: body.timestamp ?? new Date().toISOString()
   };
 
+  console.info("transcript_turn_received", {
+    callId,
+    speaker,
+    final: turn.final,
+    textLength: text.length,
+    turnId: turn.id,
+    transcriptLength: call.transcript.length
+  });
   updateCallState(call, turn);
   const [analysis, pitchDrift] = await Promise.all([analyzeCallIfDue(call), analyzePitchDriftIfDue(call, turn)]);
   const payload = {
@@ -874,6 +912,15 @@ async function ingestTranscriptTurn(callId: string, body: TranscriptIngestReques
     }
   };
   sendToCallSubscribers(callId, payload);
+  console.info("transcript_turn_processed", {
+    callId,
+    speaker,
+    final: turn.final,
+    turnId: turn.id,
+    transcriptLength: call.transcript.length,
+    analysisStage: analysis.stage,
+    pitchDriftState: pitchDrift.state
+  });
 
   return { turn, payload };
 }

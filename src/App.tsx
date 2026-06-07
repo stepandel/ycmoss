@@ -458,6 +458,8 @@ export function App() {
   const wsRef = useRef<WebSocket | null>(null);
   const callIdRef = useRef(callId);
   const sentLiveTranscriptIdsRef = useRef<Set<string>>(new Set());
+  const sentLiveTranscriptTextRef = useRef<Map<string, string>>(new Map());
+  const pendingLiveTranscriptTimersRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     callIdRef.current = callId;
@@ -514,6 +516,14 @@ export function App() {
     const interval = window.setInterval(() => setElapsedSeconds((seconds) => seconds + 1), 1000);
     return () => window.clearInterval(interval);
   }, [liveKitConnectionState]);
+
+  useEffect(() => {
+    const pendingTimers = pendingLiveTranscriptTimersRef.current;
+    return () => {
+      pendingTimers.forEach((timer) => window.clearTimeout(timer));
+      pendingTimers.clear();
+    };
+  }, []);
 
   async function joinRoom() {
     setIsJoining(true);
@@ -572,11 +582,34 @@ export function App() {
         return next;
       });
 
-      if (!turn.final || sentLiveTranscriptIdsRef.current.has(turn.id)) return;
-      sentLiveTranscriptIdsRef.current.add(turn.id);
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: "transcript.turn", callId, ...turn }));
+      const sendTurn = (final: boolean) => {
+        if (final && sentLiveTranscriptIdsRef.current.has(turn.id)) return;
+        if (!final && sentLiveTranscriptTextRef.current.get(turn.id) === turn.text) return;
+        if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+
+        if (final) {
+          sentLiveTranscriptIdsRef.current.add(turn.id);
+        }
+        sentLiveTranscriptTextRef.current.set(turn.id, turn.text);
+        wsRef.current.send(JSON.stringify({ type: "transcript.turn", callId, ...turn, final }));
+      };
+
+      const pendingTimer = pendingLiveTranscriptTimersRef.current.get(turn.id);
+      if (pendingTimer) {
+        window.clearTimeout(pendingTimer);
+        pendingLiveTranscriptTimersRef.current.delete(turn.id);
       }
+
+      if (!turn.final) {
+        const nextTimer = window.setTimeout(() => {
+          pendingLiveTranscriptTimersRef.current.delete(turn.id);
+          sendTurn(true);
+        }, 1_200);
+        pendingLiveTranscriptTimersRef.current.set(turn.id, nextTimer);
+        return;
+      }
+
+      sendTurn(true);
     },
     [callId]
   );
