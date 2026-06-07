@@ -546,7 +546,7 @@ export function App() {
           </label>
           <button className="primary-button" onClick={joinRoom} disabled={isJoining}>
             <Phone size={16} />
-            {token ? "Rejoin" : "Go on air"}
+            {token ? "Rejoin" : "Join"}
           </button>
         </section>
 
