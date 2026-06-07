@@ -12,10 +12,8 @@ import {
 import { Track } from "livekit-client";
 import {
   BadgeCheck,
-  Bot,
   Check,
   CircleAlert,
-  CircleDot,
   Copy,
   Mic,
   MicOff,
@@ -38,13 +36,13 @@ type TranscriptTurn = {
 };
 
 type DiscoveryStage =
-  | "Remove idea from the table"
-  | "Get them telling stories about the past"
-  | "Mine for specific instance for cost consequence"
-  | "Surface the behavioural residue"
-  | "Check for active search"
-  | "Introduce direction"
-  | "Close by pining a concrete next step";
+  | "Frame & Disarm"
+  | "Find a problem & get into a story"
+  | "Quantify the pain"
+  | "Find the behavioural residue"
+  | "Gauge intent / Active search"
+  | "Test commitment"
+  | "Close on the next step";
 
 type NextQuestion = {
   priority: "low" | "medium" | "high";
@@ -69,6 +67,51 @@ type Config = {
 
 type RouteMode = "founder" | "prospect";
 
+const discoveryArc: Array<{ stage: DiscoveryStage; label: string; goal: string; doneWhen: string }> = [
+  {
+    stage: "Frame & Disarm",
+    label: "Frame & disarm",
+    goal: "Get your idea off the table.",
+    doneWhen: "They are talking freely about their own world, not reaching for a pitch."
+  },
+  {
+    stage: "Find a problem & get into a story",
+    label: "Problem story",
+    goal: "Pin them to a specific, recent instance.",
+    doneWhen: "You are inside one concrete past event, not generalities."
+  },
+  {
+    stage: "Quantify the pain",
+    label: "Quantify pain",
+    goal: "Establish cost, frequency, and downstream consequence of that instance.",
+    doneWhen: "You can state how much it hurts and how often."
+  },
+  {
+    stage: "Find the behavioural residue",
+    label: "Behavioural residue",
+    goal: "Uncover what they have already tried, built, or paid for.",
+    doneWhen: "You know whether real money or time has been spent."
+  },
+  {
+    stage: "Gauge intent / Active search",
+    label: "Active search",
+    goal: "Determine if they are solving this now or it is a someday item.",
+    doneWhen: "You know it is a find-budget problem, not a nice-to-have."
+  },
+  {
+    stage: "Test commitment",
+    label: "Test commitment",
+    goal: "Float your direction lightly and ask for something costly: time, an intro, or money.",
+    doneWhen: "They either advance or dodge."
+  },
+  {
+    stage: "Close on the next step",
+    label: "Next step",
+    goal: "Lock a concrete dated advancement, or explicitly name that there is not one.",
+    doneWhen: "The next step, or its confirmed absence, is unambiguous."
+  }
+];
+
 const demoTurns: Array<Pick<TranscriptTurn, "speaker" | "text">> = [
   {
     speaker: "prospect",
@@ -89,7 +132,7 @@ const demoTurns: Array<Pick<TranscriptTurn, "speaker" | "text">> = [
 ];
 
 const defaultAnalysis: CopilotAnalysis = {
-  stage: "Get them telling stories about the past",
+  stage: "Find a problem & get into a story",
   nextQuestions: []
 };
 
@@ -103,6 +146,16 @@ function getWebSocketUrl() {
   const isViteDevServer = window.location.hostname === "127.0.0.1" && window.location.port === "5173";
   const host = isViteDevServer ? "127.0.0.1:8787" : window.location.host;
   return `${protocol}://${host}/ws`;
+}
+
+function formatElapsed(totalSeconds: number) {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatClock(isoTimestamp: string) {
+  return new Date(isoTimestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function VideoGrid() {
@@ -132,11 +185,11 @@ function MicMuteButton() {
         title="Toggle microphone"
       >
         <span className="mic-toggle-on">
-          <Mic size={18} />
+          <Mic size={17} />
           Mute
         </span>
         <span className="mic-toggle-off">
-          <MicOff size={18} />
+          <MicOff size={17} />
           Unmute
         </span>
       </TrackToggle>
@@ -197,6 +250,8 @@ export function App() {
     gaps: ["business impact", "decision process", "timeline", "success criteria"]
   });
   const [connectionState, setConnectionState] = useState("connecting");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [copiedLink, setCopiedLink] = useState<RouteMode | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const sentLiveTranscriptIdsRef = useRef<Set<string>>(new Set());
   const callId = roomName;
@@ -230,6 +285,13 @@ export function App() {
     });
     return () => socket.close();
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    setElapsedSeconds(0);
+    const interval = window.setInterval(() => setElapsedSeconds((seconds) => seconds + 1), 1000);
+    return () => window.clearInterval(interval);
+  }, [token]);
 
   async function joinRoom() {
     setIsJoining(true);
@@ -296,42 +358,62 @@ export function App() {
   const isLiveKitReady = Boolean(config?.livekitUrl && token);
   const founderLink = `${window.location.origin}/founder?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent("founder")}`;
   const prospectLink = `${window.location.origin}/prospect?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent("prospect")}`;
+  const currentStageIndex = Math.max(
+    0,
+    discoveryArc.findIndex((entry) => entry.stage === analysis.stage)
+  );
+  const currentStage = discoveryArc[currentStageIndex];
 
-  async function copyLink(link: string) {
+  async function copyLink(link: string, which: RouteMode) {
     await navigator.clipboard.writeText(link);
+    setCopiedLink(which);
+    window.setTimeout(() => setCopiedLink((current) => (current === which ? null : current)), 1600);
   }
 
   return (
     <main className={`shell ${routeMode}`}>
+      <div className="backdrop" aria-hidden="true">
+        <div className="grain" />
+      </div>
+
       <section className="call-panel">
-        <header className="topbar">
-          <div>
-            <h1>{isFounder ? "Founder Co-Pilot" : "Discovery Call"}</h1>
-            <p>
-              {isFounder
-                ? "Live call, live transcript, restrained next-question suggestions."
-                : "Join the same discovery room without the internal co-pilot workspace."}
-            </p>
+        <header className="topbar reveal">
+          <div className="brand">
+            <span className="brand-mark">✦</span>
+            <div>
+              <h1>{isFounder ? "Discovery Studio" : "Discovery Call"}</h1>
+              <p>
+                {isFounder
+                  ? "Live call, live transcript, restrained next-question suggestions."
+                  : "Join the same discovery room without the internal co-pilot workspace."}
+              </p>
+            </div>
           </div>
           <div className="status-row">
             <span className={`status-pill ${connectionState}`}>
-              <CircleDot size={14} />
+              <span className="pip" />
               {connectionState}
             </span>
+            {token ? (
+              <span className="status-pill onair">
+                <span className="pip live" />
+                on air · {formatElapsed(elapsedSeconds)}
+              </span>
+            ) : null}
             {isFounder ? (
               <span className="status-pill">
-                <Sparkles size={14} />
-                OpenAI co-pilot
+                <Sparkles size={13} />
+                co-pilot
               </span>
             ) : null}
             <span className="status-pill">
-              <Users size={14} />
+              <Users size={13} />
               shared room
             </span>
           </div>
         </header>
 
-        <section className="video-stage">
+        <section className="video-stage glass reveal d1">
           {isLiveKitReady && config ? (
             <LiveKitRoom
               serverUrl={config.livekitUrl}
@@ -349,15 +431,14 @@ export function App() {
             </LiveKitRoom>
           ) : (
             <div className="empty-video">
-              <div>
-                <h2>LiveKit room</h2>
-                <p>Join the room to start video.</p>
-              </div>
+              <span className="empty-glyph">✦</span>
+              <h2>The stage is dark</h2>
+              <p>Join the room to bring the studio to life.</p>
             </div>
           )}
         </section>
 
-        <section className="join-strip">
+        <section className="join-strip glass reveal d2">
           <label>
             Room
             <input value={roomName} onChange={(event) => setRoomName(event.target.value)} />
@@ -367,41 +448,56 @@ export function App() {
             <input value={identity} onChange={(event) => setIdentity(event.target.value)} />
           </label>
           <button className="primary-button" onClick={joinRoom} disabled={isJoining}>
-            <Phone size={17} />
-            {token ? "Rejoin" : "Join"}
+            <Phone size={16} />
+            {token ? "Rejoin" : "Go on air"}
           </button>
         </section>
 
-        <section className="invite-strip">
-          <div>
+        <section className="invite-strip reveal d3">
+          <div className="glass">
             <span>Founder</span>
             <code>{founderLink}</code>
-            <button className="icon-button" onClick={() => copyLink(founderLink)} aria-label="Copy founder link">
-              <Copy size={17} />
+            <button
+              className="icon-button"
+              onClick={() => copyLink(founderLink, "founder")}
+              aria-label="Copy founder link"
+            >
+              {copiedLink === "founder" ? <Check size={16} /> : <Copy size={16} />}
             </button>
           </div>
-          <div>
+          <div className="glass">
             <span>Prospect</span>
             <code>{prospectLink}</code>
-            <button className="icon-button" onClick={() => copyLink(prospectLink)} aria-label="Copy prospect link">
-              <Copy size={17} />
+            <button
+              className="icon-button"
+              onClick={() => copyLink(prospectLink, "prospect")}
+              aria-label="Copy prospect link"
+            >
+              {copiedLink === "prospect" ? <Check size={16} /> : <Copy size={16} />}
             </button>
           </div>
         </section>
 
         {isFounder ? (
-          <section className="transcript-panel">
+          <section className="transcript-panel glass reveal d4">
             <div className="section-title">
-              <Mic size={18} />
-              <h2>Transcript Stream</h2>
+              <Mic size={16} />
+              <h2>Transcript</h2>
+              <span className="section-aside">live speech-to-text</span>
             </div>
             <div className="transcript-list">
               {transcript.length === 0 ? (
-                <p className="muted">Live speech-to-text appears here during the room. You can still send a manual turn or run the demo.</p>
+                <p className="muted empty-transcript">
+                  Live speech-to-text appears here during the room. You can still send a manual turn or run the
+                  demo.
+                </p>
               ) : (
                 transcript.map((turn) => (
                   <article key={turn.id} className={`turn ${turn.speaker}${turn.final ? "" : " interim"}`}>
-                    <span>{turn.speaker === "rep" ? "Founder" : "Prospect"}</span>
+                    <header>
+                      <span className="turn-speaker">{turn.speaker === "rep" ? "Founder" : "Prospect"}</span>
+                      <span className="turn-time">{formatClock(turn.timestamp)}</span>
+                    </header>
                     <p>{turn.text}</p>
                   </article>
                 ))
@@ -410,11 +506,11 @@ export function App() {
             <div className="composer">
               <div className="segmented" role="tablist" aria-label="Speaker">
                 <button className={speaker === "prospect" ? "active" : ""} onClick={() => setSpeaker("prospect")}>
-                  <UserRound size={16} />
+                  <UserRound size={15} />
                   Prospect
                 </button>
                 <button className={speaker === "rep" ? "active" : ""} onClick={() => setSpeaker("rep")}>
-                  <BadgeCheck size={16} />
+                  <BadgeCheck size={15} />
                   Founder
                 </button>
               </div>
@@ -424,13 +520,13 @@ export function App() {
                 onKeyDown={(event) => {
                   if (event.key === "Enter") sendTurn();
                 }}
-                placeholder="Type a transcript turn..."
+                placeholder="Type a transcript turn…"
               />
               <button className="icon-button" onClick={() => sendTurn()} aria-label="Send transcript turn">
-                <Send size={18} />
+                <Send size={17} />
               </button>
               <button className="ghost-button" onClick={runDemo}>
-                <Play size={16} />
+                <Play size={15} />
                 Demo
               </button>
             </div>
@@ -439,82 +535,103 @@ export function App() {
       </section>
 
       {isFounder ? (
-        <aside className="copilot-panel">
-          <div className="section-title">
-            <Bot size={19} />
-            <h2>Co-Pilot</h2>
-          </div>
-
-          <section className="stage-panel">
-            <div className="priority">
-              <CircleDot size={16} />
-              Current stage
+        <aside className="copilot-panel glass reveal d2">
+          <header className="copilot-head">
+            <span className="copilot-glyph">❖</span>
+            <div>
+              <h2>Co-pilot</h2>
+              <p>listening to the room</p>
             </div>
-            <h3>{analysis.stage}</h3>
+          </header>
+
+          <section className="stage-rail">
+            <span className="rail-title">Discovery arc</span>
+            <ol>
+              {discoveryArc.map((entry, index) => {
+                const state =
+                  index < currentStageIndex ? "done" : index === currentStageIndex ? "current" : "ahead";
+                return (
+                  <li key={entry.stage} className={state} title={entry.stage}>
+                    <span className="rail-step">{String(index + 1).padStart(2, "0")}</span>
+                    <span className="rail-copy">
+                      <span className="rail-label">{entry.label}</span>
+                      {state === "current" ? (
+                        <span className="rail-current-detail">
+                          <span>{entry.goal}</span>
+                          <span>{entry.doneWhen}</span>
+                        </span>
+                      ) : null}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+            <p className="rail-done">
+              <span>Done:</span> {currentStage.doneWhen}
+            </p>
           </section>
 
           {copilotError ? (
-            <section className="copilot-error-card">
-              <div className="priority">
-                <CircleAlert size={16} />
-                OpenAI error
-              </div>
-              <h3>Co-pilot analysis failed</h3>
+            <section className="copilot-card error">
+              <span className="card-kicker">
+                <CircleAlert size={14} />
+                co-pilot error
+              </span>
+              <h3>Analysis failed</h3>
               <p>{copilotError}</p>
             </section>
+          ) : analysis.nextQuestions.length ? (
+            <section className="copilot-card">
+              <span className="card-kicker">
+                <Sparkles size={14} />
+                ask next
+              </span>
+              <div className="question-list">
+                {analysis.nextQuestions.map((nextQuestion, index) => (
+                  <article
+                    key={`${nextQuestion.question}-${index}`}
+                    className={`question-card ${nextQuestion.priority}`}
+                    style={{ animationDelay: `${index * 90}ms` }}
+                  >
+                    <span className="priority-chip">{nextQuestion.priority}</span>
+                    <h3>{nextQuestion.question}</h3>
+                    <p>{nextQuestion.reason}</p>
+                  </article>
+                ))}
+              </div>
+              <button className="primary-button">
+                <Check size={15} />
+                Use top question
+              </button>
+            </section>
           ) : (
-            <section className={`suggestion-card ${analysis.nextQuestions[0]?.priority ?? "quiet"}`}>
-              {analysis.nextQuestions.length ? (
-              <>
-                <div className="priority">
-                  <CircleAlert size={16} />
-                  Recommended next questions
-                </div>
-                <div className="question-list">
-                  {analysis.nextQuestions.map((nextQuestion, index) => (
-                    <article key={`${nextQuestion.question}-${index}`} className={`question-card ${nextQuestion.priority}`}>
-                      <span>{nextQuestion.priority} priority</span>
-                      <h3>{nextQuestion.question}</h3>
-                      <p>{nextQuestion.reason}</p>
-                    </article>
-                  ))}
-                </div>
-                <div className="actions">
-                  <button className="primary-button">
-                    <Check size={16} />
-                    Use top
-                  </button>
-                </div>
-              </>
-              ) : (
-              <>
-                <div className="priority">
-                  <Check size={16} />
-                  Listening
-                </div>
-                <h3>No recommendation yet</h3>
-                <p>The co-pilot is waiting for enough transcript context to recommend the next move.</p>
-              </>
-              )}
+            <section className="copilot-card quiet">
+              <span className="card-kicker">
+                <span className="pip live" />
+                listening
+              </span>
+              <h3>No recommendation yet</h3>
+              <p>The co-pilot is waiting for enough transcript context to recommend the next move.</p>
             </section>
           )}
 
           <section className="state-panel">
-            <h3>Call State</h3>
-            <dl>
-              <div>
-                <dt>Stage</dt>
-                <dd>{callState.stage}</dd>
+            <h3>Open gaps</h3>
+            {callState.gaps.length ? (
+              <div className="chip-row">
+                {callState.gaps.map((gap, index) => (
+                  <span key={`${gap}-${index}`} className="gap-chip">
+                    {gap}
+                  </span>
+                ))}
               </div>
-              <div>
-                <dt>Open gaps</dt>
-                <dd>{callState.gaps.length ? callState.gaps.join(", ") : "covered"}</dd>
-              </div>
-            </dl>
+            ) : (
+              <p className="muted">All covered ✦</p>
+            )}
           </section>
 
           <section className="facts-panel">
-            <h3>Captured Facts</h3>
+            <h3>Captured facts</h3>
             {callState.facts.length ? (
               <ul>
                 {callState.facts.map((fact, index) => (
