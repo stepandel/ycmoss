@@ -694,10 +694,6 @@ export function App() {
                   </article>
                 ))}
               </div>
-              <button className="primary-button">
-                <Check size={15} />
-                Use top prompt
-              </button>
             </section>
           ) : (
             <section className="copilot-card quiet">
