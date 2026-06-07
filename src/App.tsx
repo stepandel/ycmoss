@@ -66,6 +66,14 @@ type Config = {
 
 type RouteMode = "founder" | "prospect";
 
+const defaultOpenGaps = [
+  "concrete instance",
+  "cost & frequency",
+  "existing workaround / spend",
+  "decision power",
+  "commitment"
+];
+
 const discoveryArc: Array<{ stage: DiscoveryStage; label: string; goal: string }> = [
   {
     stage: "Frame & Disarm",
@@ -334,7 +342,7 @@ export function App() {
   const [callState, setCallState] = useState<CallState>({
     stage: defaultAnalysis.stage,
     facts: [],
-    gaps: ["business impact", "decision process", "timeline", "success criteria"]
+    gaps: defaultOpenGaps
   });
   const [connectionState, setConnectionState] = useState("connecting");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);

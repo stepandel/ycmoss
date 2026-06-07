@@ -160,6 +160,13 @@ const discoveryStageGuide = [
   }
 ] as const satisfies ReadonlyArray<{ stage: DiscoveryStage; goal: string; doneWhen: string }>;
 const discoveryStages = discoveryStageGuide.map((entry) => entry.stage);
+const defaultOpenGaps = [
+  "concrete instance",
+  "cost & frequency",
+  "existing workaround / spend",
+  "decision power",
+  "commitment"
+];
 const discoveryStagePrompt = discoveryStageGuide
   .map((entry, index) => `${index + 1}. ${entry.stage} — Goal: ${entry.goal} Done when: ${entry.doneWhen}`)
   .join("\n");
@@ -275,7 +282,7 @@ function getCall(callId: string): CallState {
     calls.set(callId, {
       transcript: [],
       facts: [],
-      gaps: new Set(["business impact", "decision process", "timeline", "success criteria"]),
+      gaps: new Set(defaultOpenGaps),
       analysis: defaultAnalysis,
       lastAnalysisAt: 0
     });
@@ -292,17 +299,20 @@ function updateCallState(call: CallState, turn: TranscriptTurn) {
   if (text.includes("using ") || text.includes("we use ") || text.includes("currently")) {
     call.facts.push(`Stack/status quo: ${turn.text}`);
   }
-  if (text.includes("cost") || text.includes("revenue") || text.includes("hours") || text.includes("time") || text.includes("pipeline")) {
-    call.gaps.delete("business impact");
+  if (text.includes("example") || text.includes("instance") || text.includes("last time") || text.includes("last week") || text.includes("yesterday")) {
+    call.gaps.delete("concrete instance");
   }
-  if (text.includes("decide") || text.includes("approval") || text.includes("procurement")) {
-    call.gaps.delete("decision process");
+  if (text.includes("cost") || text.includes("frequency") || text.includes("often") || text.includes("revenue") || text.includes("hours") || text.includes("time") || text.includes("pipeline")) {
+    call.gaps.delete("cost & frequency");
   }
-  if (text.includes("this quarter") || text.includes("next month") || text.includes("timeline") || text.includes("by q")) {
-    call.gaps.delete("timeline");
+  if (text.includes("using ") || text.includes("we use ") || text.includes("currently") || text.includes("workaround") || text.includes("spend") || text.includes("paid")) {
+    call.gaps.delete("existing workaround / spend");
   }
-  if (text.includes("success") || text.includes("metric") || text.includes("kpi")) {
-    call.gaps.delete("success criteria");
+  if (text.includes("decide") || text.includes("decision") || text.includes("approval") || text.includes("procurement") || text.includes("budget owner")) {
+    call.gaps.delete("decision power");
+  }
+  if (text.includes("commit") || text.includes("next step") || text.includes("intro") || text.includes("pilot") || text.includes("this quarter") || text.includes("next month") || text.includes("by q")) {
+    call.gaps.delete("commitment");
   }
 
   call.facts = call.facts.slice(-8);
