@@ -67,48 +67,41 @@ type Config = {
 
 type RouteMode = "founder" | "prospect";
 
-const discoveryArc: Array<{ stage: DiscoveryStage; label: string; goal: string; doneWhen: string }> = [
+const discoveryArc: Array<{ stage: DiscoveryStage; label: string; goal: string }> = [
   {
     stage: "Frame & Disarm",
     label: "Frame & disarm",
-    goal: "Get your idea off the table.",
-    doneWhen: "They are talking freely about their own world, not reaching for a pitch."
+    goal: "Get your idea off the table."
   },
   {
     stage: "Find a problem & get into a story",
     label: "Problem story",
-    goal: "Pin them to a specific, recent instance.",
-    doneWhen: "You are inside one concrete past event, not generalities."
+    goal: "Pin them to a specific, recent instance."
   },
   {
     stage: "Quantify the pain",
     label: "Quantify pain",
-    goal: "Establish cost, frequency, and downstream consequence of that instance.",
-    doneWhen: "You can state how much it hurts and how often."
+    goal: "Establish cost, frequency, and downstream consequence of that instance."
   },
   {
     stage: "Find the behavioural residue",
     label: "Behavioural residue",
-    goal: "Uncover what they have already tried, built, or paid for.",
-    doneWhen: "You know whether real money or time has been spent."
+    goal: "Uncover what they have already tried, built, or paid for."
   },
   {
     stage: "Gauge intent / Active search",
     label: "Active search",
-    goal: "Determine if they are solving this now or it is a someday item.",
-    doneWhen: "You know it is a find-budget problem, not a nice-to-have."
+    goal: "Determine if they are solving this now or it is a someday item."
   },
   {
     stage: "Test commitment",
     label: "Test commitment",
-    goal: "Float your direction lightly and ask for something costly: time, an intro, or money.",
-    doneWhen: "They either advance or dodge."
+    goal: "Float your direction lightly and ask for something costly: time, an intro, or money."
   },
   {
     stage: "Close on the next step",
     label: "Next step",
-    goal: "Lock a concrete dated advancement, or explicitly name that there is not one.",
-    doneWhen: "The next step, or its confirmed absence, is unambiguous."
+    goal: "Lock a concrete dated advancement, or explicitly name that there is not one."
   }
 ];
 
@@ -557,7 +550,7 @@ export function App() {
                   <li
                     key={entry.stage}
                     className={`${progressState}${isRevealed ? " revealed" : ""}`}
-                    title={`${entry.stage}\nGoal: ${entry.goal}\nDone when: ${entry.doneWhen}`}
+                    title={`${entry.stage}\nGoal: ${entry.goal}`}
                   >
                     <button
                       type="button"
@@ -575,7 +568,6 @@ export function App() {
                         {isRevealed ? (
                           <span className="rail-current-detail">
                             <span>{entry.goal}</span>
-                            <span>{entry.doneWhen}</span>
                           </span>
                         ) : null}
                       </span>
