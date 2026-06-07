@@ -147,33 +147,34 @@ async function llmSuggestion(call, turn) {
     return localSuggestion(call, turn);
   }
 
-  const response = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
-    temperature: 0.2,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content:
-          "You are a restrained sales discovery co-pilot. Suggest one concise next question only when it helps the rep. Otherwise return none. Respond as JSON: {\"type\":\"suggestion\",\"priority\":\"low|medium|high\",\"question\":\"...\",\"reason\":\"...\"} or {\"type\":\"none\"}."
-      },
-      {
-        role: "user",
-        content: JSON.stringify({
-          stage: call.stage,
-          facts: call.facts,
-          gaps: [...call.gaps],
-          recentTranscript: call.transcript.slice(-10),
-          latestTurn: turn
-        })
-      }
-    ]
-  });
-
   try {
+    const response = await openai.chat.completions.create({
+      model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a restrained sales discovery co-pilot. Suggest one concise next question only when it helps the rep. Otherwise return none. Respond as JSON: {\"type\":\"suggestion\",\"priority\":\"low|medium|high\",\"question\":\"...\",\"reason\":\"...\"} or {\"type\":\"none\"}."
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            stage: call.stage,
+            facts: call.facts,
+            gaps: [...call.gaps],
+            recentTranscript: call.transcript.slice(-10),
+            latestTurn: turn
+          })
+        }
+      ]
+    });
+
     return JSON.parse(response.choices[0]?.message?.content ?? "{\"type\":\"none\"}");
-  } catch {
-    return { type: "none" };
+  } catch (error) {
+    console.warn("openai_suggestion_fallback", error instanceof Error ? error.message : error);
+    return localSuggestion(call, turn);
   }
 }
 
