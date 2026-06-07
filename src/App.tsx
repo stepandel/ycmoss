@@ -433,7 +433,6 @@ export function App() {
             <span className="brand-mark">✦</span>
             <div>
               <h1>{isFounder ? "Sales Co-Pilot" : "Discovery Call"}</h1>
-              {isFounder ? null : <p>Join the same discovery room without the internal co-pilot workspace.</p>}
             </div>
           </div>
           <div className="status-row">
