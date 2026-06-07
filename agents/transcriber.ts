@@ -77,4 +77,11 @@ export default defineAgent<TranscriberProcessData>({
   }
 });
 
-cli.runApp(new ServerOptions({ agent: fileURLToPath(import.meta.url), agentName }));
+cli.runApp(
+  new ServerOptions({
+    agent: fileURLToPath(import.meta.url),
+    agentName,
+    initializeProcessTimeout: 30_000,
+    numIdleProcesses: 1
+  })
+);
