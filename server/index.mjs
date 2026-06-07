@@ -5,11 +5,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import OpenAI from "openai";
-import { AccessToken, RoomAgentDispatch, RoomConfiguration } from "livekit-server-sdk";
+import { AccessToken, AgentDispatchClient, RoomAgentDispatch, RoomConfiguration } from "livekit-server-sdk";
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? "0.0.0.0";
 const transcriberAgentName = process.env.LIVEKIT_TRANSCRIBER_AGENT_NAME ?? "transcriber";
+const livekitApiHost = process.env.LIVEKIT_URL?.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(__dirname, "../dist");
 const app = express();
@@ -24,6 +25,12 @@ if (missingLiveKitEnv.length) {
   process.exit(1);
 }
 
+const agentDispatchClient = new AgentDispatchClient(
+  livekitApiHost,
+  process.env.LIVEKIT_API_KEY,
+  process.env.LIVEKIT_API_SECRET
+);
+
 app.use(express.json());
 
 app.get("/api/config", (_req, res) => {
@@ -32,6 +39,33 @@ app.get("/api/config", (_req, res) => {
     suggestionMode: openai ? "openai" : "local"
   });
 });
+
+function transcriberDispatchMetadata(identity) {
+  return JSON.stringify({ participantIdentity: identity });
+}
+
+function isRoomMissingError(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("room not found") || message.includes("requested room does not exist") || message.includes("not found");
+}
+
+async function ensureTranscriberDispatch(roomName, identity) {
+  if (!agentDispatchClient) return;
+
+  const metadata = transcriberDispatchMetadata(identity);
+  try {
+    const dispatches = await agentDispatchClient.listDispatch(roomName);
+    const existingDispatch = dispatches.find(
+      (dispatch) => dispatch.agentName === transcriberAgentName && dispatch.metadata === metadata
+    );
+    if (existingDispatch) return;
+
+    await agentDispatchClient.createDispatch(roomName, transcriberAgentName, { metadata });
+  } catch (error) {
+    if (isRoomMissingError(error)) return;
+    console.warn("transcriber_dispatch_error", error instanceof Error ? error.message : error);
+  }
+}
 
 app.post("/api/livekit/token", async (req, res) => {
   try {
@@ -49,7 +83,7 @@ app.post("/api/livekit/token", async (req, res) => {
       agents: [
         new RoomAgentDispatch({
           agentName: transcriberAgentName,
-          metadata: JSON.stringify({ participantIdentity: identity })
+          metadata: transcriberDispatchMetadata(identity)
         })
       ]
     });
@@ -60,6 +94,8 @@ app.post("/api/livekit/token", async (req, res) => {
       canSubscribe: true,
       canPublishData: true
     });
+
+    await ensureTranscriberDispatch(roomName, identity);
 
     res.json({ token: await token.toJwt() });
   } catch (error) {
