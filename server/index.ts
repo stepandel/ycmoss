@@ -42,13 +42,13 @@ type CopilotError = {
 };
 
 type DiscoveryStage =
-  | "Frame & Disarm"
-  | "Find a problem & get into a story"
+  | "Just here to learn"
+  | "When did it last happen"
   | "Quantify the pain"
-  | "Find the behavioural residue"
-  | "Gauge intent / Active search"
-  | "Test commitment"
-  | "Close on the next step";
+  | "What have they tried?"
+  | "Are they already solving it?"
+  | "Ask for commitment"
+  | "Lock next steps";
 
 type NextQuestion = {
   priority: "low" | "medium" | "high";
@@ -129,12 +129,12 @@ const calls = new Map<string, CallState>();
 const callSubscribers = new Map<string, Set<WebSocket>>();
 const discoveryStageGuide = [
   {
-    stage: "Frame & Disarm",
+    stage: "Just here to learn",
     goal: "Get your idea off the table.",
     doneWhen: "They are talking freely about their own world, not reaching for a pitch."
   },
   {
-    stage: "Find a problem & get into a story",
+    stage: "When did it last happen",
     goal: "Pin them to a specific, recent instance.",
     doneWhen: "You are inside one concrete past event, not generalities."
   },
@@ -144,22 +144,22 @@ const discoveryStageGuide = [
     doneWhen: "You can state how much it hurts and how often."
   },
   {
-    stage: "Find the behavioural residue",
+    stage: "What have they tried?",
     goal: "Uncover what they have already tried, built, or paid for.",
     doneWhen: "You know whether real money or time has been spent."
   },
   {
-    stage: "Gauge intent / Active search",
+    stage: "Are they already solving it?",
     goal: "Determine if they are solving this now or it is a someday item.",
     doneWhen: "You know it is a find-budget problem, not a nice-to-have."
   },
   {
-    stage: "Test commitment",
+    stage: "Ask for commitment",
     goal: "Float your direction lightly and ask for something costly: time, an intro, or money.",
     doneWhen: "They either advance or dodge."
   },
   {
-    stage: "Close on the next step",
+    stage: "Lock next steps",
     goal: "Lock a concrete dated advancement, or explicitly name that there is not one.",
     doneWhen: "The next step, or its confirmed absence, is unambiguous."
   }
@@ -176,7 +176,7 @@ const discoveryStagePrompt = discoveryStageGuide
   .map((entry, index) => `${index + 1}. ${entry.stage} — Goal: ${entry.goal} Done when: ${entry.doneWhen}`)
   .join("\n");
 const defaultAnalysis: CopilotAnalysis = {
-  stage: "Frame & Disarm",
+  stage: "Just here to learn",
   nextQuestions: [
     {
       priority: "medium",

@@ -23,13 +23,13 @@ type TranscriptTurn = {
 };
 
 type DiscoveryStage =
-  | "Frame & Disarm"
-  | "Find a problem & get into a story"
+  | "Just here to learn"
+  | "When did it last happen"
   | "Quantify the pain"
-  | "Find the behavioural residue"
-  | "Gauge intent / Active search"
-  | "Test commitment"
-  | "Close on the next step";
+  | "What have they tried?"
+  | "Are they already solving it?"
+  | "Ask for commitment"
+  | "Lock next steps";
 
 type NextQuestion = {
   priority: "low" | "medium" | "high";
@@ -72,44 +72,44 @@ const defaultOpenGaps = [
 
 const discoveryArc: Array<{ stage: DiscoveryStage; label: string; goal: string }> = [
   {
-    stage: "Frame & Disarm",
-    label: "Frame & disarm",
+    stage: "Just here to learn",
+    label: "Just here to learn",
     goal: "Get your idea off the table."
   },
   {
-    stage: "Find a problem & get into a story",
-    label: "Problem story",
+    stage: "When did it last happen",
+    label: "When did it last happen",
     goal: "Pin them to a specific, recent instance."
   },
   {
     stage: "Quantify the pain",
-    label: "Quantify pain",
+    label: "Quantify the pain",
     goal: "Establish cost, frequency, and downstream consequence of that instance."
   },
   {
-    stage: "Find the behavioural residue",
-    label: "Behavioural residue",
+    stage: "What have they tried?",
+    label: "What have they tried?",
     goal: "Uncover what they have already tried, built, or paid for."
   },
   {
-    stage: "Gauge intent / Active search",
-    label: "Active search",
+    stage: "Are they already solving it?",
+    label: "Are they already solving it?",
     goal: "Determine if they are solving this now or it is a someday item."
   },
   {
-    stage: "Test commitment",
-    label: "Test commitment",
+    stage: "Ask for commitment",
+    label: "Ask for commitment",
     goal: "Float your direction lightly and ask for something costly: time, an intro, or money."
   },
   {
-    stage: "Close on the next step",
-    label: "Next step",
+    stage: "Lock next steps",
+    label: "Lock next steps",
     goal: "Lock a concrete dated advancement, or explicitly name that there is not one."
   }
 ];
 
 const stagePromptPlaceholders: Record<DiscoveryStage, NextQuestion[]> = {
-  "Frame & Disarm": [
+  "Just here to learn": [
     {
       priority: "medium",
       question: "Before I say anything about our idea, can you tell me how this shows up in your world?",
@@ -121,7 +121,7 @@ const stagePromptPlaceholders: Record<DiscoveryStage, NextQuestion[]> = {
       reason: "Gives them permission to speak freely."
     }
   ],
-  "Find a problem & get into a story": [
+  "When did it last happen": [
     {
       priority: "medium",
       question: "Can you walk me through the last time this came up?",
@@ -145,7 +145,7 @@ const stagePromptPlaceholders: Record<DiscoveryStage, NextQuestion[]> = {
       reason: "Separates a one-off annoyance from a recurring problem."
     }
   ],
-  "Find the behavioural residue": [
+  "What have they tried?": [
     {
       priority: "medium",
       question: "What have you already tried to fix or work around this?",
@@ -157,7 +157,7 @@ const stagePromptPlaceholders: Record<DiscoveryStage, NextQuestion[]> = {
       reason: "Surfaces existing behavior instead of stated interest."
     }
   ],
-  "Gauge intent / Active search": [
+  "Are they already solving it?": [
     {
       priority: "medium",
       question: "Is this something you are actively trying to solve right now?",
@@ -169,7 +169,7 @@ const stagePromptPlaceholders: Record<DiscoveryStage, NextQuestion[]> = {
       reason: "Tests whether budget and urgency exist."
     }
   ],
-  "Test commitment": [
+  "Ask for commitment": [
     {
       priority: "medium",
       question: "Would it be worth putting 30 minutes on the calendar to look at this with your real workflow?",
@@ -181,7 +181,7 @@ const stagePromptPlaceholders: Record<DiscoveryStage, NextQuestion[]> = {
       reason: "Looks for advancement instead of polite interest."
     }
   ],
-  "Close on the next step": [
+  "Lock next steps": [
     {
       priority: "medium",
       question: "What is the concrete next step from here, if there is one?",
@@ -196,8 +196,8 @@ const stagePromptPlaceholders: Record<DiscoveryStage, NextQuestion[]> = {
 };
 
 const defaultAnalysis: CopilotAnalysis = {
-  stage: "Frame & Disarm",
-  nextQuestions: stagePromptPlaceholders["Frame & Disarm"]
+  stage: "Just here to learn",
+  nextQuestions: stagePromptPlaceholders["Just here to learn"]
 };
 
 function getRouteMode(): RouteMode {
