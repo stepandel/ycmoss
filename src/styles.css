@@ -33,6 +33,11 @@ button {
   padding: 18px;
 }
 
+.shell.prospect {
+  grid-template-columns: minmax(0, 1040px);
+  justify-content: center;
+}
+
 .call-panel,
 .copilot-panel {
   min-width: 0;
@@ -264,8 +269,7 @@ input:focus {
   margin-top: 12px;
 }
 
-.segmented,
-.role-picker {
+.segmented {
   display: inline-grid;
   grid-template-columns: 1fr 1fr;
   height: 42px;
@@ -274,8 +278,7 @@ input:focus {
   overflow: hidden;
 }
 
-.segmented button,
-.role-picker button {
+.segmented button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -289,8 +292,7 @@ input:focus {
   white-space: nowrap;
 }
 
-.segmented button.active,
-.role-picker button.active {
+.segmented button.active {
   background: #26352d;
   color: #ffffff;
 }
@@ -461,8 +463,7 @@ ul {
     align-items: stretch;
   }
 
-  .segmented,
-  .role-picker {
+  .segmented {
     width: 100%;
   }
 
