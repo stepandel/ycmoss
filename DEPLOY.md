@@ -34,7 +34,7 @@ fly deploy
 
 ## GitHub Actions Deploy
 
-This repo includes `.github/workflows/fly.yml`, which deploys to Fly on every push to `main` and can also be run manually from the GitHub Actions tab.
+This repo includes `.github/workflows/fly.yml`, which builds the app and deploys to Fly on every push to `main`. It can also be run manually from the GitHub Actions tab.
 
 Create a Fly deploy token:
 
@@ -52,6 +52,12 @@ The workflow uses Fly's official GitHub Actions setup:
 
 ```yaml
 uses: superfly/flyctl-actions/setup-flyctl@master
+```
+
+It deploys explicitly to the app configured in `fly.toml`:
+
+```bash
+flyctl deploy --remote-only -a ycmoss
 ```
 
 The Docker image uses pnpm through Corepack. Local development uses the same package manager:
