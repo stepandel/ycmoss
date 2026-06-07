@@ -1,14 +1,23 @@
 import "dotenv/config";
 import express from "express";
 import http from "node:http";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MossClient, type QueryResultDocumentInfo } from "@moss-dev/moss";
+import rtms from "@zoom/rtms";
 import OpenAI from "openai";
 import { AccessToken, AgentDispatchClient, RoomAgentDispatch, RoomConfiguration } from "livekit-server-sdk";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
+
+declare global {
+  namespace Express {
+    interface Request {
+      rawBody?: string;
+    }
+  }
+}
 
 type Speaker = "rep" | "prospect";
 
@@ -33,6 +42,14 @@ type TranscriptEvent = {
 type SubscribeEvent = {
   type: "call.subscribe";
   callId: string;
+};
+
+type TranscriptIngestRequest = {
+  speaker?: Speaker;
+  text?: string;
+  id?: string;
+  final?: boolean;
+  timestamp?: string;
 };
 
 type CopilotError = {
@@ -61,6 +78,17 @@ type CopilotAnalysis = {
   nextQuestions: NextQuestion[];
 };
 
+type PitchDriftState = "on_discovery_path" | "drifting" | "pitching" | "recovering";
+
+type PitchDriftAnalysis = {
+  state: PitchDriftState;
+  confidence: number;
+  shouldWarn: boolean;
+  warning: string;
+  recoveryQuestion: string;
+  reasons: string[];
+};
+
 type LlmAnalysis = CopilotAnalysis & {
   facts: string[];
   completedGaps: string[];
@@ -78,14 +106,18 @@ type CallState = {
   facts: string[];
   gaps: Set<string>;
   analysis: CopilotAnalysis;
+  pitchDrift: PitchDriftAnalysis;
   lastAnalysisAt: number;
+  lastPitchDriftAt: number;
   pendingAnalysis?: Promise<CopilotAnalysis>;
+  pendingPitchDrift?: Promise<PitchDriftAnalysis>;
 };
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? "0.0.0.0";
 const transcriberAgentName = process.env.LIVEKIT_TRANSCRIBER_AGENT_NAME ?? "transcriber";
 const copilotAnalysisIntervalMs = Number(process.env.COPILOT_ANALYSIS_INTERVAL_MS ?? 10_000);
+const pitchDriftIntervalMs = Number(process.env.PITCH_DRIFT_INTERVAL_MS ?? 3_000);
 const requiredLiveKitEnv = ["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"] as const;
 const missingLiveKitEnv = requiredLiveKitEnv.filter((key) => !process.env[key]);
 const requiredOpenAiEnv = ["OPENAI_API_KEY"] as const;
@@ -100,6 +132,19 @@ const mossAutoRefresh = process.env.MOSS_AUTO_REFRESH === "true";
 const mossPollingIntervalInSeconds = Number(process.env.MOSS_POLLING_INTERVAL_SECONDS ?? 300);
 const mossCachePath = process.env.MOSS_CACHE_PATH?.trim();
 const isMossConfigured = Boolean(mossProjectId && mossProjectKey && mossIndexName);
+const zoomClientId = process.env.ZOOM_CLIENT_ID?.trim();
+const zoomClientSecret = process.env.ZOOM_CLIENT_SECRET?.trim();
+const zoomRedirectUri = process.env.ZOOM_REDIRECT_URI?.trim();
+const zoomInstallState = process.env.ZOOM_INSTALL_STATE?.trim();
+const zoomWebhookSecretToken = process.env.ZOOM_WEBHOOK_SECRET_TOKEN?.trim();
+const zoomOAuthStateSecret =
+  process.env.ZOOM_OAUTH_STATE_SECRET?.trim() || zoomClientSecret || zoomWebhookSecretToken || zoomInstallState;
+const zoomTranscriptIngestSecret = process.env.ZOOM_TRANSCRIPT_INGEST_SECRET?.trim();
+const zoomDeepLinkApiUrl = process.env.ZOOM_DEEPLINK_API_URL?.trim() || "https://api.zoom.us/v2/zoomapp/deeplink/";
+const zoomDeepLinkAction = process.env.ZOOM_DEEPLINK_ACTION?.trim() || "go";
+const zoomRtmsClients = new Map<string, InstanceType<typeof rtms.Client>>();
+const zoomOAuthStateCookieName = "dc_zoom_oauth_state";
+const zoomOAuthStateMaxAgeMs = 10 * 60 * 1000;
 
 if (missingLiveKitEnv.length) {
   console.error(`Missing required LiveKit environment: ${missingLiveKitEnv.join(", ")}`);
@@ -119,6 +164,7 @@ const livekitApiHost = livekitUrl.replace(/^wss:/, "https:").replace(/^ws:/, "ht
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = [path.resolve(__dirname, "../dist"), path.resolve(__dirname, "../../dist")].find(existsSync) ?? path.resolve(__dirname, "../dist");
 const app = express();
+app.set("trust proxy", 1);
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 const openai = new OpenAI({ apiKey: openaiApiKey });
@@ -190,13 +236,187 @@ const defaultAnalysis: CopilotAnalysis = {
     }
   ]
 };
+const defaultPitchDrift: PitchDriftAnalysis = {
+  state: "on_discovery_path",
+  confidence: 0,
+  shouldWarn: false,
+  warning: "",
+  recoveryQuestion: "Can you walk me through the last time this happened?",
+  reasons: []
+};
 
-app.use(express.json());
+const zoomAppContentSecurityPolicy = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "media-src 'self' data: blob:",
+  "connect-src 'self' https: wss: ws:",
+  "worker-src 'self' blob:",
+  "form-action 'self'"
+].join("; ");
+
+app.use(
+  express.json({
+    verify: (req, _res, buffer) => {
+      (req as express.Request).rawBody = buffer.toString("utf8");
+    }
+  })
+);
+
+app.use((_req, res, next) => {
+  res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Security-Policy", zoomAppContentSecurityPolicy);
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  next();
+});
 
 app.get("/api/config", (_req, res) => {
   res.json({
     livekitUrl
   });
+});
+
+app.get("/api/zoom/config", (_req, res) => {
+  res.json({
+    configured: Boolean(zoomClientId && zoomClientSecret && zoomRedirectUri),
+    rtmsConfigured: Boolean(process.env.ZM_RTMS_CLIENT && process.env.ZM_RTMS_SECRET),
+    redirectUri: zoomRedirectUri
+  });
+});
+
+app.get("/zoom/install", (req, res) => {
+  if (!zoomClientId || !zoomRedirectUri) {
+    return res.status(501).send("Zoom install is not configured. Set ZOOM_CLIENT_ID and ZOOM_REDIRECT_URI.");
+  }
+
+  const state = createZoomOAuthState();
+  if (state && state !== zoomInstallState) {
+    setZoomOAuthStateCookie(req, res, state);
+  }
+
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: zoomClientId,
+    redirect_uri: zoomRedirectUri,
+    ...(state ? { state } : {})
+  });
+
+  res.redirect(`https://zoom.us/oauth/authorize?${params.toString()}`);
+});
+
+type ZoomOAuthTokenResponse = {
+  access_token?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  token_type?: string;
+};
+
+function basicAuthHeader(clientId: string, clientSecret: string) {
+  return `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+async function exchangeZoomAuthorizationCode(code: string): Promise<ZoomOAuthTokenResponse> {
+  if (!zoomClientId || !zoomClientSecret || !zoomRedirectUri) {
+    throw new Error("Zoom OAuth is not configured. Set ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET, and ZOOM_REDIRECT_URI.");
+  }
+
+  const params = new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: zoomRedirectUri
+  });
+  const response = await fetch(`https://zoom.us/oauth/token?${params.toString()}`, {
+    method: "POST",
+    headers: {
+      Authorization: basicAuthHeader(zoomClientId, zoomClientSecret)
+    }
+  });
+  const payload = (await response.json().catch(() => ({}))) as ZoomOAuthTokenResponse & { reason?: string; message?: string };
+  if (!response.ok || !payload.access_token) {
+    throw new Error(payload.reason || payload.message || "Zoom OAuth token exchange failed.");
+  }
+
+  return payload;
+}
+
+function parseZoomDeepLink(payload: unknown) {
+  if (!payload || typeof payload !== "object") return undefined;
+
+  const record = payload as Record<string, unknown>;
+  return (
+    asNonEmptyString(record.deeplink) ??
+    asNonEmptyString(record.deep_link) ??
+    asNonEmptyString(record.deepLink) ??
+    asNonEmptyString(record.url)
+  );
+}
+
+async function createZoomDeepLink(accessToken: string) {
+  const response = await fetch(zoomDeepLinkApiUrl, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ action: zoomDeepLinkAction.slice(0, 256) })
+  });
+  const payload = await response.json().catch(() => ({}));
+  const deepLink = parseZoomDeepLink(payload);
+  if (!response.ok || !deepLink) {
+    const record = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+    throw new Error(asNonEmptyString(record.message) || asNonEmptyString(record.reason) || "Zoom deep link generation failed.");
+  }
+
+  return deepLink;
+}
+
+app.get("/zoom/oauth/callback", async (req, res) => {
+  const code = typeof req.query.code === "string" ? req.query.code : undefined;
+  const state = typeof req.query.state === "string" ? req.query.state : undefined;
+
+  if (!code) {
+    return res.status(400).send("Zoom OAuth callback did not include a code.");
+  }
+
+  if (!isZoomOAuthStateValid(req, state)) {
+    return res.status(400).send("Zoom OAuth state did not match.");
+  }
+
+  try {
+    clearZoomOAuthStateCookie(req, res);
+    const token = await exchangeZoomAuthorizationCode(code);
+    const deepLink = await createZoomDeepLink(token.access_token as string);
+    return res.redirect(deepLink);
+  } catch (error) {
+    console.error("zoom_oauth_callback_error", error);
+    const message = escapeHtml(error instanceof Error ? error.message : "Zoom OAuth callback failed.");
+    return res.status(500).type("html").send(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Discovery Co-Pilot Authorization Failed</title>
+  </head>
+  <body>
+    <h1>Discovery Co-Pilot could not launch in Zoom</h1>
+    <p>${message}</p>
+  </body>
+</html>`);
+  }
 });
 
 function asNonEmptyString(value: unknown): string | undefined {
@@ -216,6 +436,122 @@ function parseTokenRequest(body: unknown): { roomName: string; identity: string 
 
 function transcriberDispatchMetadata(identity: string) {
   return JSON.stringify({ participantIdentity: identity });
+}
+
+function sanitizeZoomRoomSegment(value: string) {
+  return value.replace(/[^a-zA-Z0-9._:-]/g, "-").slice(0, 96);
+}
+
+function zoomCallIdFromPayload(payload: Record<string, unknown>) {
+  const meetingUuid =
+    asNonEmptyString(payload.meeting_uuid) ??
+    asNonEmptyString(payload.webinar_uuid) ??
+    asNonEmptyString(payload.session_id) ??
+    asNonEmptyString(payload.engagement_id);
+
+  return meetingUuid ? `zoom-${sanitizeZoomRoomSegment(meetingUuid)}` : undefined;
+}
+
+function speakerFromZoomName(userName?: string): Speaker {
+  const normalized = userName?.toLowerCase() ?? "";
+  return normalized.includes("founder") || normalized.includes("rep") || normalized.includes("sales")
+    ? "rep"
+    : "prospect";
+}
+
+function zoomEncryptedToken(plainToken: string) {
+  if (!zoomWebhookSecretToken) return undefined;
+  return createHmac("sha256", zoomWebhookSecretToken).update(plainToken).digest("hex");
+}
+
+function constantTimeEqual(left: string, right: string) {
+  const leftBuffer = Buffer.from(left);
+  const rightBuffer = Buffer.from(right);
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function signZoomOAuthState(value: string) {
+  if (!zoomOAuthStateSecret) return undefined;
+  return createHmac("sha256", zoomOAuthStateSecret).update(value).digest("base64url");
+}
+
+function createZoomOAuthState() {
+  const payload = `${randomUUID()}.${Date.now()}`;
+  const signature = signZoomOAuthState(payload);
+  return signature ? `${payload}.${signature}` : zoomInstallState;
+}
+
+function parseCookies(cookieHeader?: string) {
+  const cookies = new Map<string, string>();
+  if (!cookieHeader) return cookies;
+
+  for (const cookie of cookieHeader.split(";")) {
+    const [rawName, ...rawValue] = cookie.trim().split("=");
+    if (!rawName || rawValue.length === 0) continue;
+    try {
+      cookies.set(rawName, decodeURIComponent(rawValue.join("=")));
+    } catch {
+      cookies.set(rawName, rawValue.join("="));
+    }
+  }
+
+  return cookies;
+}
+
+function isSecureRequest(req: express.Request) {
+  return req.secure || req.get("x-forwarded-proto") === "https";
+}
+
+function setZoomOAuthStateCookie(req: express.Request, res: express.Response, state: string) {
+  res.cookie(zoomOAuthStateCookieName, state, {
+    httpOnly: true,
+    maxAge: zoomOAuthStateMaxAgeMs,
+    sameSite: "lax",
+    secure: isSecureRequest(req)
+  });
+}
+
+function clearZoomOAuthStateCookie(req: express.Request, res: express.Response) {
+  res.clearCookie(zoomOAuthStateCookieName, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: isSecureRequest(req)
+  });
+}
+
+function isSignedZoomOAuthStateValid(state: string) {
+  const parts = state.split(".");
+  if (parts.length !== 3) return false;
+
+  const [nonce, timestampText, signature] = parts;
+  const timestamp = Number(timestampText);
+  if (!nonce || !Number.isFinite(timestamp) || Date.now() - timestamp > zoomOAuthStateMaxAgeMs) return false;
+
+  const expectedSignature = signZoomOAuthState(`${nonce}.${timestampText}`);
+  return Boolean(expectedSignature && constantTimeEqual(signature, expectedSignature));
+}
+
+function isZoomOAuthStateValid(req: express.Request, state?: string) {
+  if (!state) return !zoomOAuthStateSecret && !zoomInstallState;
+  if (zoomInstallState && state === zoomInstallState) return true;
+
+  const cookieState = parseCookies(req.get("cookie")).get(zoomOAuthStateCookieName);
+  return Boolean(cookieState && constantTimeEqual(state, cookieState) && isSignedZoomOAuthStateValid(state));
+}
+
+function verifyZoomWebhookSignature(req: express.Request) {
+  if (!zoomWebhookSecretToken) return true;
+
+  const timestamp = req.get("x-zm-request-timestamp");
+  const signature = req.get("x-zm-signature");
+  const rawBody = req.rawBody;
+  if (!timestamp || !signature || !rawBody) return false;
+
+  const expectedSignature = `v0=${createHmac("sha256", zoomWebhookSecretToken)
+    .update(`v0:${timestamp}:${rawBody}`)
+    .digest("hex")}`;
+
+  return constantTimeEqual(signature, expectedSignature);
 }
 
 function isRoomMissingError(error: unknown) {
@@ -278,7 +614,7 @@ app.post("/api/livekit/token", async (req, res) => {
 });
 
 app.use(express.static(distDir));
-app.get(["/", "/founder", "/prospect"], (_req, res) => {
+app.get(["/", "/founder", "/prospect", "/zoom"], (_req, res) => {
   res.sendFile(path.join(distDir, "index.html"));
 });
 
@@ -289,7 +625,9 @@ function getCall(callId: string): CallState {
       facts: [],
       gaps: new Set(defaultOpenGaps),
       analysis: defaultAnalysis,
-      lastAnalysisAt: 0
+      pitchDrift: defaultPitchDrift,
+      lastAnalysisAt: 0,
+      lastPitchDriftAt: 0
     });
   }
 
@@ -339,6 +677,41 @@ function parseCopilotAnalysis(value: unknown): CopilotAnalysis {
   return {
     stage,
     nextQuestions: nextQuestions.length ? nextQuestions : defaultAnalysis.nextQuestions
+  };
+}
+
+function isPitchDriftState(value: unknown): value is PitchDriftState {
+  return value === "on_discovery_path" || value === "drifting" || value === "pitching" || value === "recovering";
+}
+
+function clampConfidence(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+}
+
+function parsePitchDriftAnalysis(value: unknown): PitchDriftAnalysis {
+  if (!value || typeof value !== "object") return defaultPitchDrift;
+
+  const record = value as Record<string, unknown>;
+  const state = isPitchDriftState(record.state) ? record.state : defaultPitchDrift.state;
+  const reasons = Array.isArray(record.reasons)
+    ? record.reasons
+        .filter((reason): reason is string => typeof reason === "string" && reason.trim().length > 0)
+        .map((reason) => reason.trim())
+        .slice(0, 3)
+    : [];
+  const warning = typeof record.warning === "string" ? record.warning.trim() : "";
+  const recoveryQuestion = typeof record.recoveryQuestion === "string" ? record.recoveryQuestion.trim() : "";
+  const shouldWarn =
+    (state === "drifting" || state === "pitching") &&
+    (typeof record.shouldWarn === "boolean" ? record.shouldWarn : true);
+
+  return {
+    state,
+    confidence: clampConfidence(record.confidence),
+    shouldWarn,
+    warning: shouldWarn && warning ? warning : "",
+    recoveryQuestion: recoveryQuestion || defaultPitchDrift.recoveryQuestion,
+    reasons
   };
 }
 
@@ -543,6 +916,68 @@ async function analyzeCallIfDue(call: CallState): Promise<CopilotAnalysis> {
   return call.pendingAnalysis;
 }
 
+async function runPitchDriftClassifier(call: CallState): Promise<PitchDriftAnalysis> {
+  const model = process.env.OPENAI_PITCH_DRIFT_MODEL ?? process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+  const recentTranscript = call.transcript.slice(-12);
+  const messages = [
+    {
+      role: "system" as const,
+      content:
+        "You are a live discovery-call classifier. Your only job is to detect whether the founder is staying on customer discovery or drifting into pitching/validation. Be strict about founder behavior, but warn only when the drift is actionable. Discovery means asking about the prospect's real past behavior, concrete recent examples, pain, cost, frequency, alternatives, workaround spend, urgency, and next commitment. Pitching means explaining the product, proposing a solution, asking hypothetical/future-tense validation questions, accepting vague positive feedback, defending differentiation, demoing too early, or talking too much. Recovery means the founder recently redirected back to a concrete past example after drifting.\n\nRespond only as JSON: {\"state\":\"on_discovery_path|drifting|pitching|recovering\",\"confidence\":0.0,\"shouldWarn\":true,\"warning\":\"one short gentle warning\",\"recoveryQuestion\":\"one concise discovery question\",\"reasons\":[\"short reason\"]}. Warnings should be specific and actionable, never scolding. Prefer a recovery question that asks for the last real instance or existing workaround."
+    },
+    {
+      role: "user" as const,
+      content: JSON.stringify({
+        currentDiscoveryStage: call.analysis.stage,
+        openGaps: [...call.gaps],
+        transcript: recentTranscript
+      })
+    }
+  ];
+
+  console.info("pitch_drift_prompt", {
+    model,
+    messages
+  });
+
+  const response = await openai.chat.completions.create({
+    model,
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages
+  });
+
+  const rawContent = response.choices[0]?.message?.content ?? "{}";
+  const parsedPitchDrift = parsePitchDriftAnalysis(JSON.parse(rawContent));
+  console.info("pitch_drift_response", {
+    model,
+    usage: response.usage,
+    rawContent,
+    parsedPitchDrift
+  });
+
+  return parsedPitchDrift;
+}
+
+async function analyzePitchDriftIfDue(call: CallState, turn: TranscriptTurn): Promise<PitchDriftAnalysis> {
+  const now = Date.now();
+  if (call.pendingPitchDrift) return call.pitchDrift;
+  if (turn.speaker !== "rep") return call.pitchDrift;
+  if (call.lastPitchDriftAt && now - call.lastPitchDriftAt < pitchDriftIntervalMs) return call.pitchDrift;
+
+  call.pendingPitchDrift = runPitchDriftClassifier(call)
+    .then((pitchDrift) => {
+      call.pitchDrift = pitchDrift;
+      call.lastPitchDriftAt = Date.now();
+      return pitchDrift;
+    })
+    .finally(() => {
+      call.pendingPitchDrift = undefined;
+    });
+
+  return call.pendingPitchDrift;
+}
+
 function parseClientMessage(raw: RawData): TranscriptEvent | SubscribeEvent | null {
   const value = JSON.parse(raw.toString()) as unknown;
   if (!value || typeof value !== "object") return null;
@@ -595,6 +1030,179 @@ function sendToCallSubscribers(callId: string, payload: unknown) {
   });
 }
 
+async function ingestTranscriptTurn(callId: string, body: TranscriptIngestRequest) {
+  const text = asNonEmptyString(body.text);
+  const speaker = body.speaker;
+  if (!text || (speaker !== "rep" && speaker !== "prospect")) {
+    return null;
+  }
+
+  const call = getCall(callId);
+  const turn: TranscriptTurn = {
+    id: body.id ?? randomUUID(),
+    speaker,
+    text,
+    final: body.final ?? true,
+    timestamp: body.timestamp ?? new Date().toISOString()
+  };
+
+  updateCallState(call, turn);
+  const [analysis, pitchDrift] = await Promise.all([analyzeCallIfDue(call), analyzePitchDriftIfDue(call, turn)]);
+  const payload = {
+    type: "copilot.update",
+    callId,
+    analysis,
+    pitchDrift,
+    state: {
+      stage: analysis.stage,
+      facts: call.facts,
+      gaps: [...call.gaps]
+    }
+  };
+  sendToCallSubscribers(callId, payload);
+
+  return { turn, payload };
+}
+
+async function ingestZoomTranscript(callId: string, streamId: string, text: string, timestamp: number, userName?: string, userId?: number) {
+  return ingestTranscriptTurn(callId, {
+    id: `${streamId}:${userId ?? "unknown"}:${timestamp}:${text.length}`,
+    speaker: speakerFromZoomName(userName),
+    text,
+    final: true,
+    timestamp: Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp).toISOString() : new Date().toISOString()
+  });
+}
+
+function leaveZoomRtmsClient(streamId: string) {
+  const client = zoomRtmsClients.get(streamId);
+  if (!client) return;
+
+  try {
+    client.leave();
+  } catch (error) {
+    console.warn("zoom_rtms_leave_error", error instanceof Error ? error.message : error);
+  } finally {
+    zoomRtmsClients.delete(streamId);
+  }
+}
+
+function handleZoomRtmsStarted(payload: Record<string, unknown>) {
+  const streamId = asNonEmptyString(payload.rtms_stream_id);
+  const serverUrls = asNonEmptyString(payload.server_urls);
+  const callId = zoomCallIdFromPayload(payload);
+
+  if (!streamId || !serverUrls || !callId) {
+    console.warn("zoom_rtms_missing_payload", { streamId: Boolean(streamId), serverUrls: Boolean(serverUrls), callId });
+    return;
+  }
+
+  leaveZoomRtmsClient(streamId);
+
+  const client = new rtms.Client();
+  zoomRtmsClients.set(streamId, client);
+
+  client.onTranscriptData((buffer, _size, timestamp, metadata) => {
+    const text = buffer.toString("utf8").trim();
+    if (!text) return;
+
+    ingestZoomTranscript(callId, streamId, text, timestamp, metadata.userName, metadata.userId).catch((error) => {
+      console.error("zoom_rtms_transcript_error", error);
+      sendToCallSubscribers(callId, copilotError(callId, error));
+    });
+  });
+
+  client.onLeave((reason) => {
+    zoomRtmsClients.delete(streamId);
+    console.info("zoom_rtms_left", { streamId, reason });
+  });
+
+  client.join({
+    meeting_uuid: asNonEmptyString(payload.meeting_uuid),
+    webinar_uuid: asNonEmptyString(payload.webinar_uuid),
+    session_id: asNonEmptyString(payload.session_id),
+    engagement_id: asNonEmptyString(payload.engagement_id),
+    rtms_stream_id: streamId,
+    server_urls: serverUrls,
+    pollInterval: Number(process.env.ZOOM_RTMS_POLL_INTERVAL_MS ?? 20)
+  });
+
+  console.info("zoom_rtms_joined", { callId, streamId });
+}
+
+function handleZoomRtmsWebhook(body: Record<string, unknown>) {
+  const event = asNonEmptyString(body.event);
+  const payload = body.payload && typeof body.payload === "object" ? (body.payload as Record<string, unknown>) : {};
+  const streamId = asNonEmptyString(payload.rtms_stream_id);
+
+  if (event === "endpoint.url_validation") {
+    const plainToken = asNonEmptyString(payload.plainToken);
+    const encryptedToken = plainToken ? zoomEncryptedToken(plainToken) : undefined;
+    return plainToken && encryptedToken ? { type: "validation" as const, plainToken, encryptedToken } : { type: "invalid" as const };
+  }
+
+  if (event === "meeting.rtms_started" || event === "webinar.rtms_started" || event === "session.rtms_started") {
+    handleZoomRtmsStarted(payload);
+    return { type: "ok" as const };
+  }
+
+  if (event === "meeting.rtms_stopped" || event === "webinar.rtms_stopped" || event === "session.rtms_stopped") {
+    if (streamId) leaveZoomRtmsClient(streamId);
+    return { type: "ok" as const };
+  }
+
+  return { type: "ignored" as const, event };
+}
+
+app.post("/api/calls/:callId/transcript", async (req, res) => {
+  try {
+    if (zoomTranscriptIngestSecret && req.get("x-transcript-ingest-secret") !== zoomTranscriptIngestSecret) {
+      return res.status(401).json({ error: "Invalid transcript ingest secret." });
+    }
+
+    const callId = asNonEmptyString(req.params.callId);
+    if (!callId) return res.status(400).json({ error: "callId is required." });
+
+    const result = await ingestTranscriptTurn(callId, req.body as TranscriptIngestRequest);
+    if (!result) {
+      return res.status(400).json({ error: "speaker and text are required." });
+    }
+
+    res.json({ ok: true, turn: result.turn });
+  } catch (error) {
+    console.error("transcript_ingest_error", error);
+    res.status(500).json({ error: "Could not ingest transcript turn." });
+  }
+});
+
+app.post("/zoom/rtms/webhook", (req, res) => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const event = asNonEmptyString(body.event);
+    if (event === "endpoint.url_validation") {
+      const result = handleZoomRtmsWebhook(body);
+      if (result.type === "validation") {
+        return res.json({
+          plainToken: result.plainToken,
+          encryptedToken: result.encryptedToken
+        });
+      }
+
+      return res.status(400).json({ error: "Invalid Zoom URL validation payload." });
+    }
+
+    if (!verifyZoomWebhookSignature(req)) {
+      return res.status(401).json({ error: "Invalid Zoom webhook signature." });
+    }
+
+    const result = handleZoomRtmsWebhook(body);
+    res.json({ ok: true, status: result.type });
+  } catch (error) {
+    console.error("zoom_rtms_webhook_error", error);
+    res.status(500).json({ error: "Could not process Zoom RTMS webhook." });
+  }
+});
+
 wss.on("connection", (socket) => {
   socket.on("close", () => unsubscribeSocket(socket));
   socket.on("message", async (raw) => {
@@ -604,28 +1212,8 @@ wss.on("connection", (socket) => {
       subscribeSocketToCall(socket, event.callId);
       if (event.type === "call.subscribe") return;
 
-      const call = getCall(event.callId);
-      const turn: TranscriptTurn = {
-        id: event.id ?? randomUUID(),
-        speaker: event.speaker,
-        text: event.text,
-        final: event.final ?? true,
-        timestamp: event.timestamp ?? new Date().toISOString()
-      };
-
-      updateCallState(call, turn);
       try {
-        const analysis = await analyzeCallIfDue(call);
-        sendToCallSubscribers(event.callId, {
-          type: "copilot.update",
-          callId: event.callId,
-          analysis,
-          state: {
-            stage: analysis.stage,
-            facts: call.facts,
-            gaps: [...call.gaps]
-          }
-        });
+        await ingestTranscriptTurn(event.callId, event);
       } catch (error) {
         console.error("openai_analysis_error", error);
         sendToCallSubscribers(event.callId, copilotError(event.callId, error));
