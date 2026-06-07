@@ -496,12 +496,6 @@ export function App() {
                 on air · {formatElapsed(elapsedSeconds)}
               </span>
             ) : null}
-            {isFounder ? (
-              <span className="status-pill">
-                <Sparkles size={13} />
-                co-pilot
-              </span>
-            ) : null}
             <span className="status-pill">
               <Users size={13} />
               shared room
