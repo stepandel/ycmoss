@@ -482,11 +482,7 @@ export function App() {
             <span className="brand-mark">✦</span>
             <div>
               <h1>{isFounder ? "Sales Co-Pilot" : "Discovery Call"}</h1>
-              <p>
-                {isFounder
-                  ? "Live call, live transcript, restrained next-question suggestions."
-                  : "Join the same discovery room without the internal co-pilot workspace."}
-              </p>
+              {isFounder ? null : <p>Join the same discovery room without the internal co-pilot workspace.</p>}
             </div>
           </div>
           <div className="status-row">
