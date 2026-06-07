@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ControlBar,
+  DisconnectButton,
   GridLayout,
   LiveKitRoom,
   ParticipantTile,
@@ -10,7 +10,17 @@ import {
   useTracks
 } from "@livekit/components-react";
 import { RoomEvent, Track, type Participant, type TrackPublication, type TranscriptionSegment } from "livekit-client";
-import { Check, CircleAlert, Mic, MicOff, Phone, Sparkles, Video } from "lucide-react";
+import {
+  Check,
+  CircleAlert,
+  Mic,
+  MicOff,
+  MonitorUp,
+  ShieldCheck,
+  Sparkles,
+  Video,
+  VideoOff
+} from "lucide-react";
 import { identityFromZoomContext, roomNameFromZoomContext, useZoomAppContext } from "./zoom";
 
 type Speaker = "rep" | "prospect";
@@ -276,26 +286,104 @@ function VideoGrid() {
   );
 }
 
-function MicMuteButton() {
+function ControlDock() {
   return (
-    <div className="stage-mic-control">
-      <TrackToggle
-        className="mic-toggle"
-        source={Track.Source.Microphone}
-        showIcon={false}
-        aria-label="Toggle microphone"
-        title="Toggle microphone"
-      >
-        <span className="mic-toggle-on">
-          <Mic size={17} />
-          Mute
-        </span>
-        <span className="mic-toggle-off">
-          <MicOff size={17} />
-          Unmute
-        </span>
-      </TrackToggle>
-    </div>
+    <footer className="control-dock">
+      <div className="dock-cluster">
+        <TrackToggle
+          className="dock-button"
+          source={Track.Source.Microphone}
+          showIcon={false}
+          aria-label="Toggle microphone"
+          title="Toggle microphone"
+        >
+          <span className="dock-on">
+            <Mic size={22} />
+            <small>Mute</small>
+          </span>
+          <span className="dock-off">
+            <MicOff size={22} />
+            <small>Unmute</small>
+          </span>
+        </TrackToggle>
+        <TrackToggle
+          className="dock-button"
+          source={Track.Source.Camera}
+          showIcon={false}
+          aria-label="Toggle camera"
+          title="Toggle camera"
+        >
+          <span className="dock-on">
+            <Video size={22} />
+            <small>Stop video</small>
+          </span>
+          <span className="dock-off">
+            <VideoOff size={22} />
+            <small>Start video</small>
+          </span>
+        </TrackToggle>
+      </div>
+      <div className="dock-cluster">
+        <TrackToggle
+          className="dock-button share"
+          source={Track.Source.ScreenShare}
+          showIcon={false}
+          aria-label="Toggle screen share"
+          title="Toggle screen share"
+        >
+          <span className="dock-on">
+            <MonitorUp size={22} />
+            <small>Stop share</small>
+          </span>
+          <span className="dock-off">
+            <MonitorUp size={22} />
+            <small>Share</small>
+          </span>
+        </TrackToggle>
+      </div>
+      <div className="dock-cluster end">
+        <DisconnectButton className="leave-button">Leave</DisconnectButton>
+      </div>
+    </footer>
+  );
+}
+
+type PreJoinDockProps = {
+  onJoin: () => void;
+  isJoining: boolean;
+};
+
+function PreJoinDock({ onJoin, isJoining }: PreJoinDockProps) {
+  return (
+    <footer className="control-dock">
+      <div className="dock-cluster">
+        <button className="dock-button" type="button" disabled>
+          <span className="dock-on">
+            <Mic size={22} />
+            <small>Mute</small>
+          </span>
+        </button>
+        <button className="dock-button" type="button" disabled>
+          <span className="dock-on">
+            <Video size={22} />
+            <small>Start video</small>
+          </span>
+        </button>
+      </div>
+      <div className="dock-cluster">
+        <button className="dock-button" type="button" disabled>
+          <span className="dock-on">
+            <MonitorUp size={22} />
+            <small>Share</small>
+          </span>
+        </button>
+      </div>
+      <div className="dock-cluster end">
+        <button className="join-button" type="button" onClick={onJoin} disabled={isJoining}>
+          {isJoining ? "Joining…" : "Join"}
+        </button>
+      </div>
+    </footer>
   );
 }
 
@@ -367,6 +455,7 @@ export function App() {
   const [liveKitConnectionState, setLiveKitConnectionState] = useState<LiveKitConnectionState>("idle");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [revealedStage, setRevealedStage] = useState<DiscoveryStage | null>(null);
+  const [sidebarTab, setSidebarTab] = useState<"copilot" | "transcript">("copilot");
   const callId = roomName;
   const wsRef = useRef<WebSocket | null>(null);
   const callIdRef = useRef(callId);
@@ -488,113 +577,150 @@ export function App() {
   const activeRevealedStage = revealedStage ?? analysis.stage;
   const visiblePrompts = (transcript.length ? analysis.nextQuestions : stagePromptPlaceholders[activeRevealedStage]).slice(0, 2);
   const fluffGuard = pitchDrift.fluffGuard;
+  // Meet-style live captions: surface the latest transcript turn while it is fresh.
+  // The elapsed-seconds ticker re-renders every second, which ages captions out.
+  const latestTurn = transcript.length ? transcript[transcript.length - 1] : null;
+  const captionTurn =
+    isLiveKitConnected && latestTurn && Date.now() - new Date(latestTurn.timestamp).getTime() < 8000
+      ? latestTurn
+      : null;
 
   return (
     <main className={`shell ${routeMode}`}>
-      <div className="backdrop" aria-hidden="true">
-        <div className="grain" />
-      </div>
-
       <section className="call-panel">
-        <header className="topbar reveal">
-          <div className="brand">
-            <span className="brand-mark">✦</span>
-            <div>
-              <h1>{isFounder ? "Sales Co-Pilot" : "Discovery Call"}</h1>
-            </div>
+        <header className="topbar">
+          <div className="meeting-info">
+            <span className="meeting-shield" title="End-to-end encrypted">
+              <ShieldCheck size={15} />
+            </span>
+            <h1>{isFounder ? "Sales Co-Pilot" : "Discovery Call"}</h1>
+            <span className="meeting-id">{roomName}</span>
           </div>
           <div className="status-row">
-            <span className={`status-pill ${connectionState}`}>
-              <span className="pip" />
-              co-pilot {connectionState}
-            </span>
-            <span className={`status-pill ${liveKitConnectionState}`}>
-              <span className="pip" />
-              room {liveKitConnectionState}
-            </span>
-            <span className={`status-pill zoom-${zoomContext.status}`}>
-              <Video size={14} />
-              zoom {zoomContext.status === "ready" ? zoomContext.runningContext : zoomContext.status}
-            </span>
             {isLiveKitConnected ? (
-              <span className="status-pill onair">
+              <span className="rec-pill">
                 <span className="pip live" />
-                on air · {formatElapsed(elapsedSeconds)}
+                {formatElapsed(elapsedSeconds)}
               </span>
             ) : null}
-            <button className="primary-button" onClick={joinRoom} disabled={isJoining}>
-              <Phone size={16} />
-              {token ? "Rejoin" : "Join"}
-            </button>
+            <span className={`status-pill ${connectionState}`} title={`Co-pilot ${connectionState}`}>
+              <span className="pip" />
+              co-pilot
+            </span>
+            <span className={`status-pill ${liveKitConnectionState}`} title={`Room ${liveKitConnectionState}`}>
+              <span className="pip" />
+              room
+            </span>
+            <span className={`status-pill zoom-${zoomContext.status}`}>
+              <Video size={13} />
+              {zoomContext.status === "ready" ? zoomContext.runningContext : `zoom ${zoomContext.status}`}
+            </span>
           </div>
         </header>
 
-        <section className="video-stage glass reveal d1">
-          {isLiveKitReady && config ? (
-            <LiveKitRoom
-              serverUrl={config.livekitUrl}
-              token={token}
-              connect
-              video
-              audio
-              className="livekit-room"
-              onConnected={() => {
-                setElapsedSeconds(0);
-                setLiveKitConnectionState("connected");
-                setCopilotError("");
-              }}
-              onDisconnected={() => setLiveKitConnectionState("disconnected")}
-              onError={(error) => {
-                setLiveKitConnectionState("error");
-                setCopilotError(error.message || "Could not connect to the LiveKit room.");
-              }}
-              onMediaDeviceFailure={(_failure, kind) => {
-                setCopilotError(`${kind ?? "Media"} permission or device setup failed.`);
-              }}
-            >
+        {isLiveKitReady && config ? (
+          <LiveKitRoom
+            serverUrl={config.livekitUrl}
+            token={token}
+            connect
+            video
+            audio
+            className="meeting-area"
+            onConnected={() => {
+              setElapsedSeconds(0);
+              setLiveKitConnectionState("connected");
+              setCopilotError("");
+            }}
+            onDisconnected={() => {
+              setLiveKitConnectionState("disconnected");
+              setToken("");
+            }}
+            onError={(error) => {
+              setLiveKitConnectionState("error");
+              setCopilotError(error.message || "Could not connect to the LiveKit room.");
+            }}
+            onMediaDeviceFailure={(_failure, kind) => {
+              setCopilotError(`${kind ?? "Media"} permission or device setup failed.`);
+            }}
+          >
+            <div className="video-stage">
               <LiveTranscriptionBridge onTranscript={handleLiveTranscript} />
               <VideoGrid />
               <RoomAudioRenderer />
-              <MicMuteButton />
-              <ControlBar controls={{ microphone: false }} />
-            </LiveKitRoom>
-          ) : (
-            <div className="empty-video">
-              <span className="empty-glyph">✦</span>
-              <h2>The stage is dark</h2>
-              <p>Join the room to bring the studio to life.</p>
+              {captionTurn ? (
+                <div className="captions-overlay" aria-live="polite">
+                  <span className="caption-speaker">
+                    {captionTurn.speaker === "rep" ? "Founder" : "Prospect"}
+                  </span>
+                  <p>{captionTurn.text}</p>
+                </div>
+              ) : null}
             </div>
-          )}
-        </section>
-
-        {isFounder ? (
-          <section className="transcript-panel glass reveal d2">
-            <div className="section-title">
-              <Mic size={16} />
-              <h2>Transcript</h2>
-              <span className="section-aside">live speech-to-text</span>
+            <ControlDock />
+          </LiveKitRoom>
+        ) : (
+          <div className="meeting-area">
+            <div className="video-stage">
+              <div className="empty-video">
+                <span className="empty-avatar">{identity.slice(0, 2).toUpperCase()}</span>
+                <h2>Ready to join?</h2>
+                <p>Your camera and microphone will turn on when you join the call.</p>
+                <button className="join-button large" type="button" onClick={joinRoom} disabled={isJoining}>
+                  {isJoining ? "Joining…" : token ? "Rejoin now" : "Join now"}
+                </button>
+              </div>
             </div>
-            <div className="transcript-list">
-              {transcript.length === 0 ? (
-                <p className="muted empty-transcript">Live speech-to-text appears here during the room.</p>
-              ) : (
-                transcript.map((turn) => (
-                  <article key={turn.id} className={`turn ${turn.speaker}${turn.final ? "" : " interim"}`}>
-                    <header>
-                      <span className="turn-speaker">{turn.speaker === "rep" ? "Founder" : "Prospect"}</span>
-                      <span className="turn-time">{formatClock(turn.timestamp)}</span>
-                    </header>
-                    <p>{turn.text}</p>
-                  </article>
-                ))
-              )}
-            </div>
-          </section>
-        ) : null}
+            <PreJoinDock onJoin={joinRoom} isJoining={isJoining} />
+          </div>
+        )}
       </section>
 
       {isFounder ? (
-        <aside className="copilot-panel glass reveal d2">
+        <aside className="side-panel">
+          <nav className="panel-tabs" role="tablist" aria-label="Side panel">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sidebarTab === "copilot"}
+              className={sidebarTab === "copilot" ? "active" : ""}
+              onClick={() => setSidebarTab("copilot")}
+            >
+              <Sparkles size={14} />
+              Co-Pilot
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={sidebarTab === "transcript"}
+              className={sidebarTab === "transcript" ? "active" : ""}
+              onClick={() => setSidebarTab("transcript")}
+            >
+              <Mic size={14} />
+              Transcript
+              {transcript.length ? <span className="tab-count">{transcript.length}</span> : null}
+            </button>
+          </nav>
+
+          {sidebarTab === "transcript" ? (
+            <div className="panel-body transcript-body">
+              <div className="transcript-list">
+                {transcript.length === 0 ? (
+                  <p className="muted empty-transcript">Live speech-to-text appears here during the call.</p>
+                ) : (
+                  transcript.map((turn) => (
+                    <article key={turn.id} className={`turn ${turn.speaker}${turn.final ? "" : " interim"}`}>
+                      <header>
+                        <span className="turn-speaker">{turn.speaker === "rep" ? "Founder" : "Prospect"}</span>
+                        <span className="turn-time">{formatClock(turn.timestamp)}</span>
+                      </header>
+                      <p>{turn.text}</p>
+                    </article>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="panel-body">
           <header className="copilot-head">
             <span className="copilot-glyph">❖</span>
             <div>
@@ -771,16 +897,18 @@ export function App() {
             </div>
           </section>
 
-          {callState.facts.length ? (
-            <section className="facts-panel">
-              <h3>Captured facts</h3>
-              <ul>
-                {callState.facts.map((fact, index) => (
-                  <li key={`${fact}-${index}`}>{fact}</li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
+              {callState.facts.length ? (
+                <section className="facts-panel">
+                  <h3>Captured facts</h3>
+                  <ul>
+                    {callState.facts.map((fact, index) => (
+                      <li key={`${fact}-${index}`}>{fact}</li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+            </div>
+          )}
         </aside>
       ) : null}
     </main>
