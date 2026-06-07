@@ -2,7 +2,7 @@
 
 A prototype sales discovery co-pilot for live customer calls.
 
-The app uses LiveKit for the video room, streams transcript turns to a Node WebSocket server, and shows the founder restrained next-question suggestions from either OpenAI or a local fallback heuristic.
+The app uses LiveKit for the video room, streams transcript turns to a Node WebSocket server, and shows the founder OpenAI-powered discovery stage and next-question recommendations.
 
 ## Prototype Paths
 
@@ -25,7 +25,7 @@ http://127.0.0.1:5173/prospect?room=acme-demo
 - LiveKit Agents for streaming speech-to-text
 - Express for API routes
 - `ws` for transcript/co-pilot WebSocket events
-- OpenAI for suggestions when configured
+- OpenAI for co-pilot analysis
 - pnpm for package management
 - Fly.io deployment via Docker
 
@@ -54,7 +54,7 @@ LIVEKIT_STT_MODEL=deepgram/nova-3
 LIVEKIT_STT_LANGUAGE=en
 ```
 
-Optionally configure OpenAI:
+Configure OpenAI:
 
 ```text
 OPENAI_API_KEY=your-openai-api-key
@@ -62,7 +62,7 @@ OPENAI_MODEL=gpt-4.1-mini
 COPILOT_ANALYSIS_INTERVAL_MS=10000
 ```
 
-Without `OPENAI_API_KEY`, the app uses a deterministic local suggestion engine.
+Without `OPENAI_API_KEY`, the server exits on startup.
 
 Start the dev server:
 
@@ -129,5 +129,5 @@ fly deploy
 ## Notes
 
 - The transcript stream is simulated through the founder UI for now.
-- The server exits on startup unless `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` are configured.
+- The server exits on startup unless LiveKit credentials and `OPENAI_API_KEY` are configured.
 - Co-pilot state is currently in-memory per Node process, which is fine for a prototype but should move to durable/shared storage before scaling across machines.

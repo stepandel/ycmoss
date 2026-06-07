@@ -65,7 +65,6 @@ type CallState = {
 
 type Config = {
   livekitUrl: string;
-  suggestionMode: "openai" | "local";
 };
 
 type RouteMode = "founder" | "prospect";
@@ -223,6 +222,17 @@ export function App() {
           setAnalysis(event.analysis);
         }
         setCallState(event.state);
+      } else if (event.type === "copilot.error") {
+        setAnalysis({
+          stage: defaultAnalysis.stage,
+          nextQuestions: [
+            {
+              priority: "high",
+              question: "OpenAI co-pilot analysis failed. Check the server logs and OpenAI model configuration.",
+              reason: event.error ?? "OpenAI returned an error."
+            }
+          ]
+        });
       }
     });
     return () => socket.close();
@@ -327,7 +337,7 @@ export function App() {
             {isFounder ? (
               <span className="status-pill">
                 <Sparkles size={14} />
-                {config?.suggestionMode ?? "local"} suggestions
+                OpenAI co-pilot
               </span>
             ) : null}
             <span className="status-pill">

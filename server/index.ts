@@ -29,6 +29,12 @@ type TranscriptEvent = {
   timestamp?: string;
 };
 
+type CopilotError = {
+  type: "copilot.error";
+  callId: string;
+  error: string;
+};
+
 type DiscoveryStage =
   | "Remove idea from the table"
   | "Get them telling stories about the past"
@@ -64,22 +70,30 @@ const transcriberAgentName = process.env.LIVEKIT_TRANSCRIBER_AGENT_NAME ?? "tran
 const copilotAnalysisIntervalMs = Number(process.env.COPILOT_ANALYSIS_INTERVAL_MS ?? 10_000);
 const requiredLiveKitEnv = ["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"] as const;
 const missingLiveKitEnv = requiredLiveKitEnv.filter((key) => !process.env[key]);
+const requiredOpenAiEnv = ["OPENAI_API_KEY"] as const;
+const missingOpenAiEnv = requiredOpenAiEnv.filter((key) => !process.env[key]);
 
 if (missingLiveKitEnv.length) {
   console.error(`Missing required LiveKit environment: ${missingLiveKitEnv.join(", ")}`);
   process.exit(1);
 }
 
+if (missingOpenAiEnv.length) {
+  console.error(`Missing required OpenAI environment: ${missingOpenAiEnv.join(", ")}`);
+  process.exit(1);
+}
+
 const livekitUrl = process.env.LIVEKIT_URL as string;
 const livekitApiKey = process.env.LIVEKIT_API_KEY as string;
 const livekitApiSecret = process.env.LIVEKIT_API_SECRET as string;
+const openaiApiKey = process.env.OPENAI_API_KEY as string;
 const livekitApiHost = livekitUrl.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = [path.resolve(__dirname, "../dist"), path.resolve(__dirname, "../../dist")].find(existsSync) ?? path.resolve(__dirname, "../dist");
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
-const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const openai = new OpenAI({ apiKey: openaiApiKey });
 const agentDispatchClient = new AgentDispatchClient(livekitApiHost, livekitApiKey, livekitApiSecret);
 const calls = new Map<string, CallState>();
 const discoveryStages = [
@@ -106,8 +120,7 @@ app.use(express.json());
 
 app.get("/api/config", (_req, res) => {
   res.json({
-    livekitUrl,
-    suggestionMode: openai ? "openai" : "local"
+    livekitUrl
   });
 });
 
@@ -273,120 +286,38 @@ function parseCopilotAnalysis(value: unknown): CopilotAnalysis {
   };
 }
 
-function localAnalysis(call: CallState): CopilotAnalysis {
-  const recentTranscript = call.transcript.slice(-12);
-  const prospectText = recentTranscript
-    .filter((turn) => turn.speaker === "prospect")
-    .map((turn) => turn.text.toLowerCase())
-    .join(" ");
-
-  if (!prospectText.trim()) return defaultAnalysis;
-
-  if (prospectText.includes("tried") || prospectText.includes("workaround") || prospectText.includes("built") || prospectText.includes("paid")) {
-    return {
-      stage: "Check for active search",
-      nextQuestions: [
-        {
-          priority: "high",
-          question: "Are you actively looking for a better way to handle this right now?",
-          reason: "They described prior attempts, so the next signal is whether there is active search."
-        },
-        {
-          priority: "medium",
-          question: "What made the options you tried fall short?",
-          reason: "Understanding failed fixes exposes buying criteria and urgency."
-        }
-      ]
-    };
-  }
-
-  if (prospectText.includes("hours") || prospectText.includes("cost") || prospectText.includes("revenue") || prospectText.includes("pipeline")) {
-    return {
-      stage: "Surface the behavioural residue",
-      nextQuestions: [
-        {
-          priority: "high",
-          question: "What have you tried to fix this?",
-          reason: "Cost has been surfaced, so the next step is finding evidence of behavior."
-        },
-        {
-          priority: "medium",
-          question: "Are you using anything for it today, even a hacky workaround?",
-          reason: "Workarounds reveal pain strong enough to create action."
-        }
-      ]
-    };
-  }
-
-  const painWords = ["hard", "problem", "hate", "struggle", "manual", "slow", "miss", "messy", "expensive"];
-  if (painWords.some((word) => prospectText.includes(word))) {
-    return {
-      stage: "Mine for specific instance for cost consequence",
-      nextQuestions: [
-        {
-          priority: "high",
-          question: "Walk me through the last time this happened, step by step.",
-          reason: "The prospect described pain; a specific instance will make the cost concrete."
-        },
-        {
-          priority: "medium",
-          question: "How long did that take?",
-          reason: "Time cost is often the easiest consequence to quantify."
-        },
-        {
-          priority: "medium",
-          question: "What happened as a result?",
-          reason: "The rep needs consequence, not just inconvenience."
-        }
-      ]
-    };
-  }
-
+function copilotError(callId: string, error: unknown): CopilotError {
   return {
-    stage: "Get them telling stories about the past",
-    nextQuestions: [
-      {
-        priority: "medium",
-        question: "Can you tell me about the last time this showed up in a real call or workflow?",
-        reason: "Past-tense stories are more reliable than speculative opinions."
-      }
-    ]
+    type: "copilot.error",
+    callId,
+    error: error instanceof Error ? error.message : "OpenAI co-pilot analysis failed."
   };
 }
 
 async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
-  if (!openai) {
-    return localAnalysis(call);
-  }
+  const response = await openai.chat.completions.create({
+    model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
+    temperature: 0.2,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content:
+          `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage and recommend 1-3 concise next questions. Do not invent facts. Prefer questions that move the rep toward concrete past behavior, cost, consequence, active search, and a concrete next step. Respond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}]}. The stage must be exactly one of: ${discoveryStages.join("; ")}.`
+      },
+      {
+        role: "user",
+        content: JSON.stringify({
+          currentStage: call.analysis.stage,
+          facts: call.facts.slice(-8),
+          gaps: [...call.gaps],
+          transcript: call.transcript.slice(-40)
+        })
+      }
+    ]
+  });
 
-  try {
-    const response = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage and recommend 1-3 concise next questions. Do not invent facts. Prefer questions that move the rep toward concrete past behavior, cost, consequence, active search, and a concrete next step. Respond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}]}. The stage must be exactly one of: ${discoveryStages.join("; ")}.`
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            currentStage: call.analysis.stage,
-            facts: call.facts.slice(-8),
-            gaps: [...call.gaps],
-            transcript: call.transcript.slice(-40)
-          })
-        }
-      ]
-    });
-
-    return parseCopilotAnalysis(JSON.parse(response.choices[0]?.message?.content ?? "{}"));
-  } catch (error) {
-    console.warn("openai_analysis_fallback", error instanceof Error ? error.message : error);
-    return localAnalysis(call);
-  }
+  return parseCopilotAnalysis(JSON.parse(response.choices[0]?.message?.content ?? "{}"));
 }
 
 async function analyzeCallIfDue(call: CallState): Promise<CopilotAnalysis> {
@@ -446,18 +377,22 @@ wss.on("connection", (socket) => {
       };
 
       updateCallState(call, turn);
-      const analysis = await analyzeCallIfDue(call);
-
-      socket.send(JSON.stringify({
-        type: "copilot.update",
-        callId: event.callId,
-        analysis,
-        state: {
-          stage: analysis.stage,
-          facts: call.facts,
-          gaps: [...call.gaps]
-        }
-      }));
+      try {
+        const analysis = await analyzeCallIfDue(call);
+        socket.send(JSON.stringify({
+          type: "copilot.update",
+          callId: event.callId,
+          analysis,
+          state: {
+            stage: analysis.stage,
+            facts: call.facts,
+            gaps: [...call.gaps]
+          }
+        }));
+      } catch (error) {
+        console.error("openai_analysis_error", error);
+        socket.send(JSON.stringify(copilotError(event.callId, error)));
+      }
     } catch (error) {
       console.error("ws_error", error);
       socket.send(JSON.stringify({ type: "error", error: "Could not process transcript turn." }));
