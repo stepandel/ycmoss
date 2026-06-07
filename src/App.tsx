@@ -45,6 +45,17 @@ type CopilotAnalysis = {
 
 type PitchDriftState = "on_discovery_path" | "drifting" | "pitching" | "recovering";
 
+type FluffGuardState = "collecting_facts" | "mixed" | "collecting_fluff" | "insufficient_context";
+
+type FluffGuardAnalysis = {
+  state: FluffGuardState;
+  confidence: number;
+  label: string;
+  signal: string;
+  evidence: string[];
+  suggestedProbe: string;
+};
+
 type PitchDriftAnalysis = {
   state: PitchDriftState;
   confidence: number;
@@ -52,6 +63,7 @@ type PitchDriftAnalysis = {
   warning: string;
   recoveryQuestion: string;
   reasons: string[];
+  fluffGuard: FluffGuardAnalysis;
 };
 
 type CallState = {
@@ -218,7 +230,15 @@ const defaultPitchDrift: PitchDriftAnalysis = {
   shouldWarn: false,
   warning: "",
   recoveryQuestion: "Can you walk me through the last time this happened?",
-  reasons: []
+  reasons: [],
+  fluffGuard: {
+    state: "insufficient_context",
+    confidence: 0,
+    label: "Waiting for evidence",
+    signal: "No real signal yet.",
+    evidence: [],
+    suggestedProbe: "Can you walk me through the last time this happened?"
+  }
 };
 
 function getRouteMode(): RouteMode {
@@ -467,6 +487,7 @@ export function App() {
   );
   const activeRevealedStage = revealedStage ?? analysis.stage;
   const visiblePrompts = (transcript.length ? analysis.nextQuestions : stagePromptPlaceholders[activeRevealedStage]).slice(0, 2);
+  const fluffGuard = pitchDrift.fluffGuard;
 
   return (
     <main className={`shell ${routeMode}`}>
@@ -676,6 +697,31 @@ export function App() {
                 <p>{pitchDrift.recoveryQuestion}</p>
               </article>
               {pitchDrift.reasons.length ? <p>{pitchDrift.reasons[0]}</p> : null}
+            </section>
+          ) : null}
+
+          {!copilotError ? (
+            <section className={`fluff-guard ${fluffGuard.state}`}>
+              <div className="fluff-guard-head">
+                <span className="card-kicker">fluff guard</span>
+                <span className="fluff-guard-meter">
+                  <span />
+                  {Math.round(fluffGuard.confidence * 100)}%
+                </span>
+              </div>
+              <h3>{fluffGuard.label}</h3>
+              <p>{fluffGuard.signal}</p>
+              {fluffGuard.evidence.length ? (
+                <ul>
+                  {fluffGuard.evidence.map((item, index) => (
+                    <li key={`${item}-${index}`}>{item}</li>
+                  ))}
+                </ul>
+              ) : null}
+              <article className="recovery-card compact">
+                <span>Convert to fact</span>
+                <p>{fluffGuard.suggestedProbe}</p>
+              </article>
             </section>
           ) : null}
 

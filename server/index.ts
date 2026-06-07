@@ -80,6 +80,17 @@ type CopilotAnalysis = {
 
 type PitchDriftState = "on_discovery_path" | "drifting" | "pitching" | "recovering";
 
+type FluffGuardState = "collecting_facts" | "mixed" | "collecting_fluff" | "insufficient_context";
+
+type FluffGuardAnalysis = {
+  state: FluffGuardState;
+  confidence: number;
+  label: string;
+  signal: string;
+  evidence: string[];
+  suggestedProbe: string;
+};
+
 type PitchDriftAnalysis = {
   state: PitchDriftState;
   confidence: number;
@@ -87,6 +98,7 @@ type PitchDriftAnalysis = {
   warning: string;
   recoveryQuestion: string;
   reasons: string[];
+  fluffGuard: FluffGuardAnalysis;
 };
 
 type LlmAnalysis = CopilotAnalysis & {
@@ -242,7 +254,15 @@ const defaultPitchDrift: PitchDriftAnalysis = {
   shouldWarn: false,
   warning: "",
   recoveryQuestion: "Can you walk me through the last time this happened?",
-  reasons: []
+  reasons: [],
+  fluffGuard: {
+    state: "insufficient_context",
+    confidence: 0,
+    label: "Waiting for evidence",
+    signal: "No real signal yet.",
+    evidence: [],
+    suggestedProbe: "Can you walk me through the last time this happened?"
+  }
 };
 
 const zoomAppContentSecurityPolicy = [
@@ -684,8 +704,49 @@ function isPitchDriftState(value: unknown): value is PitchDriftState {
   return value === "on_discovery_path" || value === "drifting" || value === "pitching" || value === "recovering";
 }
 
+function isFluffGuardState(value: unknown): value is FluffGuardState {
+  return (
+    value === "collecting_facts" ||
+    value === "mixed" ||
+    value === "collecting_fluff" ||
+    value === "insufficient_context"
+  );
+}
+
 function clampConfidence(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : 0;
+}
+
+function parseStringList(value: unknown, maxItems: number) {
+  return Array.isArray(value)
+    ? value
+        .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        .map((item) => item.trim())
+        .slice(0, maxItems)
+    : [];
+}
+
+function parseFluffGuardAnalysis(value: unknown): FluffGuardAnalysis {
+  if (!value || typeof value !== "object") return defaultPitchDrift.fluffGuard;
+
+  const record = value as Record<string, unknown>;
+  const state = isFluffGuardState(record.state) ? record.state : defaultPitchDrift.fluffGuard.state;
+  const label = typeof record.label === "string" && record.label.trim() ? record.label.trim() : defaultPitchDrift.fluffGuard.label;
+  const signal =
+    typeof record.signal === "string" && record.signal.trim() ? record.signal.trim() : defaultPitchDrift.fluffGuard.signal;
+  const suggestedProbe =
+    typeof record.suggestedProbe === "string" && record.suggestedProbe.trim()
+      ? record.suggestedProbe.trim()
+      : defaultPitchDrift.fluffGuard.suggestedProbe;
+
+  return {
+    state,
+    confidence: clampConfidence(record.confidence),
+    label,
+    signal,
+    evidence: parseStringList(record.evidence, 3),
+    suggestedProbe
+  };
 }
 
 function parsePitchDriftAnalysis(value: unknown): PitchDriftAnalysis {
@@ -693,12 +754,7 @@ function parsePitchDriftAnalysis(value: unknown): PitchDriftAnalysis {
 
   const record = value as Record<string, unknown>;
   const state = isPitchDriftState(record.state) ? record.state : defaultPitchDrift.state;
-  const reasons = Array.isArray(record.reasons)
-    ? record.reasons
-        .filter((reason): reason is string => typeof reason === "string" && reason.trim().length > 0)
-        .map((reason) => reason.trim())
-        .slice(0, 3)
-    : [];
+  const reasons = parseStringList(record.reasons, 3);
   const warning = typeof record.warning === "string" ? record.warning.trim() : "";
   const recoveryQuestion = typeof record.recoveryQuestion === "string" ? record.recoveryQuestion.trim() : "";
   const shouldWarn =
@@ -711,7 +767,8 @@ function parsePitchDriftAnalysis(value: unknown): PitchDriftAnalysis {
     shouldWarn,
     warning: shouldWarn && warning ? warning : "",
     recoveryQuestion: recoveryQuestion || defaultPitchDrift.recoveryQuestion,
-    reasons
+    reasons,
+    fluffGuard: parseFluffGuardAnalysis(record.fluffGuard)
   };
 }
 
@@ -923,7 +980,7 @@ async function runPitchDriftClassifier(call: CallState): Promise<PitchDriftAnaly
     {
       role: "system" as const,
       content:
-        "You are a live discovery-call classifier. Your only job is to detect whether the founder is staying on customer discovery or drifting into pitching/validation. Be strict about founder behavior, but warn only when the drift is actionable. Discovery means asking about the prospect's real past behavior, concrete recent examples, pain, cost, frequency, alternatives, workaround spend, urgency, and next commitment. Pitching means explaining the product, proposing a solution, asking hypothetical/future-tense validation questions, accepting vague positive feedback, defending differentiation, demoing too early, or talking too much. Recovery means the founder recently redirected back to a concrete past example after drifting.\n\nRespond only as JSON: {\"state\":\"on_discovery_path|drifting|pitching|recovering\",\"confidence\":0.0,\"shouldWarn\":true,\"warning\":\"one short gentle warning\",\"recoveryQuestion\":\"one concise discovery question\",\"reasons\":[\"short reason\"]}. Warnings should be specific and actionable, never scolding. Prefer a recovery question that asks for the last real instance or existing workaround."
+        "You are a live discovery-call meta-classifier. Your job is to detect two things from the recent transcript: (1) whether the founder is staying on customer discovery or drifting into pitching/validation, and (2) whether the founder is collecting facts or collecting fluff.\n\nDiscovery means asking about the prospect's real past behavior, concrete recent examples, pain, cost, frequency, alternatives, workaround spend, urgency, and next commitment. Pitching means explaining the product, proposing a solution, asking hypothetical/future-tense validation questions, accepting vague positive feedback, defending differentiation, demoing too early, or talking too much. Recovery means the founder recently redirected back to a concrete past example after drifting.\n\nFacts reduce uncertainty: a specific past event, named workflow, current workaround, actual spend, time cost, frequency, decision process, stakeholder, deadline, or concrete next action. Fluff does not reduce uncertainty: empty compliments, vague enthusiasm, generic pain, future-tense willingness, politeness, abstract opinions, or 'sounds cool' without a real example. Be especially skeptical when the founder accepts compliments or hypotheticals as evidence.\n\nRespond only as JSON: {\"state\":\"on_discovery_path|drifting|pitching|recovering\",\"confidence\":0.0,\"shouldWarn\":true,\"warning\":\"one short gentle warning\",\"recoveryQuestion\":\"one concise discovery question\",\"reasons\":[\"short reason\"],\"fluffGuard\":{\"state\":\"collecting_facts|mixed|collecting_fluff|insufficient_context\",\"confidence\":0.0,\"label\":\"short status label\",\"signal\":\"one sentence describing the current evidence quality\",\"evidence\":[\"specific fact or fluff signal from transcript\"],\"suggestedProbe\":\"one concise question to convert fluff into a fact\"}}. Warnings should be specific and actionable, never scolding. Prefer recovery and suggested probe questions that ask for the last real instance, current workaround, cost, frequency, or a concrete next step."
     },
     {
       role: "user" as const,
