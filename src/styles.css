@@ -130,7 +130,7 @@ h1 {
 .join-strip,
 .composer {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: 1fr 1fr auto auto;
   gap: 10px;
   align-items: end;
   margin-top: 12px;
@@ -264,7 +264,8 @@ input:focus {
   margin-top: 12px;
 }
 
-.segmented {
+.segmented,
+.role-picker {
   display: inline-grid;
   grid-template-columns: 1fr 1fr;
   height: 42px;
@@ -273,17 +274,62 @@ input:focus {
   overflow: hidden;
 }
 
-.segmented button {
+.segmented button,
+.role-picker button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   height: 40px;
   border: 0;
   border-radius: 0;
+  padding: 0 12px;
   background: #fbfcf8;
   color: #536158;
+  white-space: nowrap;
 }
 
-.segmented button.active {
+.segmented button.active,
+.role-picker button.active {
   background: #26352d;
   color: #ffffff;
+}
+
+.invite-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.invite-strip > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 8px 8px 11px;
+  border: 1px solid #c7d0c8;
+  border-radius: 6px;
+  background: #fbfcf8;
+}
+
+.invite-strip span {
+  color: #56625b;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.invite-strip code {
+  min-width: 0;
+  overflow: hidden;
+  color: #27342d;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .copilot-panel {
@@ -393,7 +439,8 @@ ul {
 
   .topbar,
   .join-strip,
-  .composer {
+  .composer,
+  .invite-strip {
     grid-template-columns: 1fr;
   }
 
@@ -414,7 +461,8 @@ ul {
     align-items: stretch;
   }
 
-  .segmented {
+  .segmented,
+  .role-picker {
     width: 100%;
   }
 

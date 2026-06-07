@@ -14,12 +14,14 @@ import {
   Check,
   CircleAlert,
   CircleDot,
+  Copy,
   Mic,
   Phone,
   Play,
   Send,
   Sparkles,
   UserRound,
+  Users,
   Video
 } from "lucide-react";
 
@@ -89,10 +91,14 @@ function VideoGrid() {
 }
 
 export function App() {
-  const callId = useMemo(() => `call-${Date.now()}`, []);
+  const initialParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const initialRoomName = initialParams.get("room") ?? "discovery-demo";
+  const initialRole = initialParams.get("role") === "prospect" ? "prospect" : "rep";
+  const initialIdentity = initialParams.get("identity") ?? `${initialRole}-${Math.floor(Math.random() * 9000) + 1000}`;
   const [config, setConfig] = useState<Config | null>(null);
-  const [identity, setIdentity] = useState("rep-demo");
-  const [roomName, setRoomName] = useState("discovery-demo");
+  const [identity, setIdentity] = useState(initialIdentity);
+  const [roomName, setRoomName] = useState(initialRoomName);
+  const [role, setRole] = useState<Speaker>(initialRole);
   const [token, setToken] = useState("");
   const [isJoining, setIsJoining] = useState(false);
   const [speaker, setSpeaker] = useState<Speaker>("prospect");
@@ -106,6 +112,7 @@ export function App() {
   });
   const [connectionState, setConnectionState] = useState("connecting");
   const wsRef = useRef<WebSocket | null>(null);
+  const callId = roomName;
 
   useEffect(() => {
     fetch("/api/config")
@@ -177,7 +184,19 @@ export function App() {
     });
   }
 
+  function selectRole(nextRole: Speaker) {
+    setRole(nextRole);
+    setIdentity(nextRole);
+  }
+
   const isLiveKitReady = Boolean(config?.livekitUrl && token);
+  const shareBaseUrl = `${window.location.origin}${window.location.pathname}`;
+  const repLink = `${shareBaseUrl}?room=${encodeURIComponent(roomName)}&role=rep&identity=${encodeURIComponent("rep")}`;
+  const prospectLink = `${shareBaseUrl}?room=${encodeURIComponent(roomName)}&role=prospect&identity=${encodeURIComponent("prospect")}`;
+
+  async function copyLink(link: string) {
+    await navigator.clipboard.writeText(link);
+  }
 
   return (
     <main className="shell">
@@ -195,6 +214,10 @@ export function App() {
             <span className="status-pill">
               <Sparkles size={14} />
               {config?.suggestionMode ?? "local"} suggestions
+            </span>
+            <span className="status-pill">
+              <Users size={14} />
+              two-person room
             </span>
           </div>
         </header>
@@ -233,10 +256,37 @@ export function App() {
             Identity
             <input value={identity} onChange={(event) => setIdentity(event.target.value)} />
           </label>
+          <div className="role-picker" aria-label="Join as">
+            <button className={role === "rep" ? "active" : ""} onClick={() => selectRole("rep")}>
+              <BadgeCheck size={16} />
+              Rep
+            </button>
+            <button className={role === "prospect" ? "active" : ""} onClick={() => selectRole("prospect")}>
+              <UserRound size={16} />
+              Prospect
+            </button>
+          </div>
           <button className="primary-button" onClick={joinRoom} disabled={isJoining}>
             <Phone size={17} />
             {token ? "Rejoin" : "Join"}
           </button>
+        </section>
+
+        <section className="invite-strip">
+          <div>
+            <span>Rep link</span>
+            <code>{repLink}</code>
+            <button className="icon-button" onClick={() => copyLink(repLink)} aria-label="Copy rep link">
+              <Copy size={17} />
+            </button>
+          </div>
+          <div>
+            <span>Prospect link</span>
+            <code>{prospectLink}</code>
+            <button className="icon-button" onClick={() => copyLink(prospectLink)} aria-label="Copy prospect link">
+              <Copy size={17} />
+            </button>
+          </div>
         </section>
 
         <section className="transcript-panel">
