@@ -81,6 +81,13 @@ function getRouteMode(): RouteMode {
   return "founder";
 }
 
+function getWebSocketUrl() {
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  const isViteDevServer = window.location.hostname === "127.0.0.1" && window.location.port === "5173";
+  const host = isViteDevServer ? "127.0.0.1:8787" : window.location.host;
+  return `${protocol}://${host}/ws`;
+}
+
 function VideoGrid() {
   const tracks = useTracks(
     [
@@ -129,8 +136,11 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const socket = new WebSocket(`${protocol}://${window.location.hostname}:8787/ws`);
+    if (window.location.pathname === "/") {
+      window.history.replaceState(null, "", `/founder${window.location.search}`);
+    }
+
+    const socket = new WebSocket(getWebSocketUrl());
     wsRef.current = socket;
     socket.addEventListener("open", () => setConnectionState("connected"));
     socket.addEventListener("close", () => setConnectionState("disconnected"));
