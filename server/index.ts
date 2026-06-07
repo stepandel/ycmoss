@@ -123,8 +123,7 @@ const copilotAnalysisIntervalMs = Number(process.env.COPILOT_ANALYSIS_INTERVAL_M
 const pitchDriftIntervalMs = Number(process.env.PITCH_DRIFT_INTERVAL_MS ?? 3_000);
 const requiredLiveKitEnv = ["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"] as const;
 const missingLiveKitEnv = requiredLiveKitEnv.filter((key) => !process.env[key]);
-const requiredMinimaxEnv = ["MINIMAX_API_KEY"] as const;
-const missingMinimaxEnv = requiredMinimaxEnv.filter((key) => !process.env[key]);
+const hasLlmApiKey = Boolean(process.env.OPENAI_API_KEY);
 const mossProjectId = process.env.MOSS_PROJECT_ID?.trim();
 const mossProjectKey = process.env.MOSS_PROJECT_KEY?.trim();
 const mossIndexName = process.env.MOSS_INDEX_NAME?.trim();
@@ -141,16 +140,18 @@ if (missingLiveKitEnv.length) {
   process.exit(1);
 }
 
-if (missingMinimaxEnv.length) {
-  console.error(`Missing required MiniMax environment: ${missingMinimaxEnv.join(", ")}`);
+if (!hasLlmApiKey) {
+  console.error("Missing required LLM environment: OPENAI_API_KEY");
   process.exit(1);
 }
 
 const livekitUrl = process.env.LIVEKIT_URL as string;
 const livekitApiKey = process.env.LIVEKIT_API_KEY as string;
 const livekitApiSecret = process.env.LIVEKIT_API_SECRET as string;
-const minimaxApiKey = process.env.MINIMAX_API_KEY as string;
-const minimaxBaseUrl = process.env.MINIMAX_BASE_URL ?? "https://api.minimax.io/v1";
+const llmApiKey = process.env.OPENAI_API_KEY as string;
+const llmBaseUrl = process.env.OPENAI_BASE_URL;
+const llmModel = process.env.OPENAI_MODEL ?? "gpt-5.4-mini";
+const pitchDriftModel = process.env.OPENAI_PITCH_DRIFT_MODEL ?? llmModel;
 const livekitApiHost = livekitUrl.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = [path.resolve(__dirname, "../dist"), path.resolve(__dirname, "../../dist")].find(existsSync) ?? path.resolve(__dirname, "../dist");
@@ -158,7 +159,7 @@ const app = express();
 app.set("trust proxy", 1);
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
-const llm = new OpenAI({ apiKey: minimaxApiKey, baseURL: minimaxBaseUrl });
+const llm = new OpenAI({ apiKey: llmApiKey, ...(llmBaseUrl ? { baseURL: llmBaseUrl } : {}) });
 const moss = isMossConfigured ? new MossClient(mossProjectId as string, mossProjectKey as string) : undefined;
 let mossLoadPromise: Promise<string> | undefined;
 const agentDispatchClient = new AgentDispatchClient(livekitApiHost, livekitApiKey, livekitApiSecret);
@@ -566,7 +567,7 @@ function copilotError(callId: string, error: unknown): CopilotError {
   return {
     type: "copilot.error",
     callId,
-    error: error instanceof Error ? error.message : "MiniMax co-pilot analysis failed."
+    error: error instanceof Error ? error.message : "Co-pilot analysis failed."
   };
 }
 
@@ -659,7 +660,7 @@ async function retrieveMossContext(call: CallState): Promise<MossContextSnippet[
 }
 
 async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
-  const model = process.env.MINIMAX_MODEL ?? "MiniMax-M3";
+  const model = llmModel;
   const startedAt = Date.now();
   const mossContext = await retrieveMossContext(call);
   const messages = [
@@ -692,7 +693,6 @@ async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
         model,
         temperature: 0.2,
         response_format: { type: "json_object" },
-        extra_body: { thinking: { type: "disabled" } },
         messages
       } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
       { timeout: 45_000 }
@@ -745,7 +745,7 @@ async function analyzeCallIfDue(call: CallState): Promise<CopilotAnalysis> {
 }
 
 async function runPitchDriftClassifier(call: CallState): Promise<PitchDriftAnalysis> {
-  const model = process.env.MINIMAX_PITCH_DRIFT_MODEL ?? process.env.MINIMAX_MODEL ?? "MiniMax-M3";
+  const model = pitchDriftModel;
   const startedAt = Date.now();
   const recentTranscript = call.transcript.slice(-12);
   const messages = [
@@ -776,7 +776,6 @@ async function runPitchDriftClassifier(call: CallState): Promise<PitchDriftAnaly
         model,
         temperature: 0,
         response_format: { type: "json_object" },
-        extra_body: { thinking: { type: "disabled" } },
         messages
       } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
       { timeout: 45_000 }
@@ -954,7 +953,7 @@ wss.on("connection", (socket) => {
       try {
         await ingestTranscriptTurn(event.callId, event);
       } catch (error) {
-        console.error("minimax_analysis_error", error);
+        console.error("llm_analysis_error", error);
         sendToCallSubscribers(event.callId, copilotError(event.callId, error));
       }
     } catch (error) {

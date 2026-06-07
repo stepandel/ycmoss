@@ -23,7 +23,7 @@ Set secrets:
 fly secrets set LIVEKIT_URL="wss://your-project.livekit.cloud"
 fly secrets set LIVEKIT_API_KEY="your-livekit-api-key"
 fly secrets set LIVEKIT_API_SECRET="your-livekit-api-secret"
-fly secrets set MINIMAX_API_KEY="your-minimax-api-key"
+fly secrets set OPENAI_API_KEY="your-openai-api-key"
 ```
 
 Deploy:
@@ -53,7 +53,7 @@ Use the Fly dashboard/pipeline connection for automatic deploys from the GitHub 
 fly secrets set LIVEKIT_URL="wss://your-project.livekit.cloud" -a ycmoss
 fly secrets set LIVEKIT_API_KEY="your-livekit-api-key" -a ycmoss
 fly secrets set LIVEKIT_API_SECRET="your-livekit-api-secret" -a ycmoss
-fly secrets set MINIMAX_API_KEY="your-minimax-api-key" -a ycmoss
+fly secrets set OPENAI_API_KEY="your-openai-api-key" -a ycmoss
 ```
 
 If Moss context retrieval should run in production, add the Moss secrets too:

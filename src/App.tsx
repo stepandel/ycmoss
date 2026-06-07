@@ -493,7 +493,7 @@ export function App() {
         }
         setCallState(event.state);
       } else if (event.type === "copilot.error") {
-        setCopilotError(event.error ?? "MiniMax co-pilot analysis failed.");
+        setCopilotError(event.error ?? "Co-pilot analysis failed.");
       }
     });
     return () => socket.close();
