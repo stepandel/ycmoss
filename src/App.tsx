@@ -105,6 +105,93 @@ const discoveryArc: Array<{ stage: DiscoveryStage; label: string; goal: string }
   }
 ];
 
+const stagePromptPlaceholders: Record<DiscoveryStage, NextQuestion[]> = {
+  "Frame & Disarm": [
+    {
+      priority: "medium",
+      question: "Before I say anything about our idea, can you tell me how this shows up in your world?",
+      reason: "Starts by taking the pitch off the table."
+    },
+    {
+      priority: "low",
+      question: "I am mostly here to understand, so feel free to tell me where this is not a problem.",
+      reason: "Gives them permission to speak freely."
+    }
+  ],
+  "Find a problem & get into a story": [
+    {
+      priority: "medium",
+      question: "Can you walk me through the last time this came up?",
+      reason: "Pushes toward a concrete recent story."
+    },
+    {
+      priority: "medium",
+      question: "Where were you, who was involved, and what happened next?",
+      reason: "Keeps the answer out of generalities."
+    }
+  ],
+  "Quantify the pain": [
+    {
+      priority: "medium",
+      question: "Roughly how much time or money did that specific instance cost?",
+      reason: "Turns the story into measurable pain."
+    },
+    {
+      priority: "medium",
+      question: "How often does something like that happen?",
+      reason: "Separates a one-off annoyance from a recurring problem."
+    }
+  ],
+  "Find the behavioural residue": [
+    {
+      priority: "medium",
+      question: "What have you already tried to fix or work around this?",
+      reason: "Looks for real time, budget, or effort already spent."
+    },
+    {
+      priority: "medium",
+      question: "Have you built, bought, hacked together, or assigned anyone to solve it?",
+      reason: "Surfaces existing behavior instead of stated interest."
+    }
+  ],
+  "Gauge intent / Active search": [
+    {
+      priority: "medium",
+      question: "Is this something you are actively trying to solve right now?",
+      reason: "Distinguishes active search from someday interest."
+    },
+    {
+      priority: "medium",
+      question: "If a good answer existed, what would have to happen for you to move on it?",
+      reason: "Tests whether budget and urgency exist."
+    }
+  ],
+  "Test commitment": [
+    {
+      priority: "medium",
+      question: "Would it be worth putting 30 minutes on the calendar to look at this with your real workflow?",
+      reason: "Asks for a costly next action."
+    },
+    {
+      priority: "medium",
+      question: "Who else would need to be in the room if this were worth pursuing?",
+      reason: "Looks for advancement instead of polite interest."
+    }
+  ],
+  "Close on the next step": [
+    {
+      priority: "medium",
+      question: "What is the concrete next step from here, if there is one?",
+      reason: "Forces clarity instead of vague follow-up."
+    },
+    {
+      priority: "medium",
+      question: "Should we put a date on that now, or call it not a priority?",
+      reason: "Makes absence of commitment explicit."
+    }
+  ]
+};
+
 const demoTurns: Array<Pick<TranscriptTurn, "speaker" | "text">> = [
   {
     speaker: "prospect",
@@ -126,18 +213,7 @@ const demoTurns: Array<Pick<TranscriptTurn, "speaker" | "text">> = [
 
 const defaultAnalysis: CopilotAnalysis = {
   stage: "Find a problem & get into a story",
-  nextQuestions: [
-    {
-      priority: "medium",
-      question: "Before I say anything about our idea, can you walk me through the last time this came up?",
-      reason: "Starts with their world and pushes toward a concrete recent story."
-    },
-    {
-      priority: "medium",
-      question: "What made that moment painful enough to notice?",
-      reason: "Keeps the call anchored on cost and consequence instead of opinions."
-    }
-  ]
+  nextQuestions: stagePromptPlaceholders["Find a problem & get into a story"]
 };
 
 function getRouteMode(): RouteMode {
@@ -368,6 +444,7 @@ export function App() {
     discoveryArc.findIndex((entry) => entry.stage === analysis.stage)
   );
   const activeRevealedStage = revealedStage ?? analysis.stage;
+  const visiblePrompts = (transcript.length ? analysis.nextQuestions : stagePromptPlaceholders[activeRevealedStage]).slice(0, 2);
 
   async function copyLink(link: string, which: RouteMode) {
     await navigator.clipboard.writeText(link);
@@ -599,14 +676,14 @@ export function App() {
               <h3>Analysis failed</h3>
               <p>{copilotError}</p>
             </section>
-          ) : analysis.nextQuestions.length ? (
+          ) : visiblePrompts.length ? (
             <section className="copilot-card">
               <span className="card-kicker">
                 <Sparkles size={14} />
                 try next
               </span>
               <div className="question-list">
-                {analysis.nextQuestions.slice(0, 2).map((nextQuestion, index) => (
+                {visiblePrompts.map((nextQuestion, index) => (
                   <article
                     key={`${nextQuestion.question}-${index}`}
                     className={`question-card ${nextQuestion.priority}`}
