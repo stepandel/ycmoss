@@ -1,6 +1,6 @@
 # Deploying to Fly.io
 
-Fly is the recommended prototype host for this version because the app runs a single Node process with HTTP, LiveKit token generation, and a WebSocket transcript stream.
+Fly is the recommended prototype host for this version because the app runs a Node web/API process plus a long-running LiveKit Agents worker for speech-to-text.
 
 ## First Deploy
 
@@ -30,6 +30,17 @@ Deploy:
 
 ```bash
 fly deploy
+```
+
+`fly.toml` defines two process groups:
+
+- `app` runs HTTP, LiveKit token generation, the Vite build, and `/ws`.
+- `stt` runs the LiveKit transcriber worker.
+
+For an existing Fly app, make sure both process groups have at least one Machine after deploying:
+
+```bash
+fly scale count app=1 stt=1 -a ycmoss
 ```
 
 ## Fly Pipeline Deploy
@@ -78,6 +89,6 @@ pnpm start
 pnpm start:stt
 ```
 
-Run them as separate long-running processes in production. The worker joins rooms as a silent transcriber and publishes speech-to-text segments back to the UI through LiveKit's `lk.transcription` text stream.
+Run them as separate long-running processes in production. On Fly, the `app` and `stt` process groups in `fly.toml` run these separately. The public HTTP service is attached only to `app`; the `stt` process has no public port and stays available to accept LiveKit agent dispatches. The worker joins rooms as a silent transcriber and publishes speech-to-text segments back to the UI through LiveKit's `lk.transcription` text stream.
 
 The API includes a `transcriber` room-agent dispatch in LiveKit join tokens. Keep `LIVEKIT_TRANSCRIBER_AGENT_NAME` aligned between the API server and worker if you change it.

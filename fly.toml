@@ -13,7 +13,12 @@ primary_region = 'ams'
   NODE_ENV = 'production'
   PORT = '8080'
 
+[processes]
+  app = 'pnpm start'
+  stt = 'pnpm start:stt'
+
 [http_service]
+  processes = ['app']
   internal_port = 8080
   force_https = true
   auto_stop_machines = 'stop'

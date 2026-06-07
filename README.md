@@ -112,7 +112,7 @@ Run the production STT worker in a separate process:
 pnpm start:stt
 ```
 
-In production, the compiled `build/server/index.js` serves the built Vite app from `dist`, exposes `/api/livekit/token`, and keeps the `/ws` transcript stream available. The compiled `build/agents/transcriber.js` worker joins rooms as a silent LiveKit Agent and publishes speech-to-text segments back to the UI.
+In production, the compiled `build/server/index.js` serves the built Vite app from `dist`, exposes `/api/livekit/token`, and keeps the `/ws` transcript stream available. The compiled `build/agents/transcriber.js` worker joins rooms as a silent LiveKit Agent and publishes speech-to-text segments back to the UI. On Fly, `fly.toml` runs these as separate `app` and `stt` process groups.
 
 ## Live Transcription
 
@@ -128,7 +128,7 @@ If Moss is configured, the analysis query includes the current stage, known fact
 
 ## Deploy
 
-Fly.io is the recommended prototype host because the current app needs a long-running Node process for WebSockets.
+Fly.io is the recommended prototype host because the current app needs long-running Node processes for WebSockets and LiveKit speech-to-text.
 
 See [DEPLOY.md](./DEPLOY.md) for the full Fly setup.
 
@@ -141,10 +141,11 @@ fly secrets set LIVEKIT_API_KEY="your-livekit-api-key"
 fly secrets set LIVEKIT_API_SECRET="your-livekit-api-secret"
 fly secrets set OPENAI_API_KEY="your-openai-api-key"
 fly deploy
+fly scale count app=1 stt=1 -a ycmoss
 ```
 
 ## Notes
 
-- The transcript stream is simulated through the founder UI for now.
+- The founder UI has manual/demo transcript controls, but live calls depend on the `stt` process group being running in production.
 - The server exits on startup unless LiveKit credentials and `OPENAI_API_KEY` are configured.
 - Co-pilot state is currently in-memory per Node process, which is fine for a prototype but should move to durable/shared storage before scaling across machines.
