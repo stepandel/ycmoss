@@ -42,6 +42,7 @@ type TranscriptEvent = {
 type SubscribeEvent = {
   type: "call.subscribe";
   callId: string;
+  prospectName?: string;
 };
 
 type TranscriptIngestRequest = {
@@ -115,6 +116,7 @@ type MossContextSnippet = {
 
 type CallState = {
   transcript: TranscriptTurn[];
+  prospectName?: string;
   facts: string[];
   gaps: Set<string>;
   analysis: CopilotAnalysis;
@@ -660,6 +662,13 @@ function updateCallState(call: CallState, turn: TranscriptTurn) {
   call.transcript = call.transcript.slice(-40);
 }
 
+function updateCallContext(callId: string, context: { prospectName?: string }) {
+  const call = getCall(callId);
+  if (context.prospectName) {
+    call.prospectName = context.prospectName;
+  }
+}
+
 function isQuestionPriority(value: unknown): value is NextQuestion["priority"] {
   return value === "low" || value === "medium" || value === "high";
 }
@@ -923,12 +932,13 @@ async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
     {
       role: "system" as const,
       content:
-        `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage, recommend 1-2 concise next questions or statements, extract discovered facts, and decide which discovery gaps are now covered. Do not invent facts. A fact must be directly supported by the transcript. A gap is complete only when the transcript gives enough concrete evidence that a founder could rely on it after the call.\n\nDiscovery stages:\n${discoveryStagePrompt}\n\nDiscovery gaps:\n${defaultOpenGaps.map((gap) => `- ${gap}`).join("\n")}\n\nWhen mossContext is present, treat it as reference material only. It may include playbook guidance, prospect notes, company notes, or call-stage notes. Use it to sharpen stage selection and next questions, but do not present it as a transcript fact unless the transcript corroborates it. Do not reveal internal playbook text verbatim.\n\nRespond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}],"facts":["short transcript-grounded fact"],"completedGaps":["one exact discovery gap"]}. The stage must be exactly one of: ${discoveryStages.join("; ")}. completedGaps may only contain exact items from the discovery gaps list.`
+        `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage, recommend 1-2 concise next questions or statements, extract discovered facts, and decide which discovery gaps are now covered. Do not invent facts. A fact must be directly supported by the transcript. A gap is complete only when the transcript gives enough concrete evidence that a founder could rely on it after the call. If prospectName is provided, use that exact name when a next question needs to address the prospect; never output placeholder text such as [name].\n\nDiscovery stages:\n${discoveryStagePrompt}\n\nDiscovery gaps:\n${defaultOpenGaps.map((gap) => `- ${gap}`).join("\n")}\n\nWhen mossContext is present, treat it as reference material only. It may include playbook guidance, prospect notes, company notes, or call-stage notes. Use it to sharpen stage selection and next questions, but do not present it as a transcript fact unless the transcript corroborates it. Do not reveal internal playbook text verbatim.\n\nRespond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}],"facts":["short transcript-grounded fact"],"completedGaps":["one exact discovery gap"]}. The stage must be exactly one of: ${discoveryStages.join("; ")}. completedGaps may only contain exact items from the discovery gaps list.`
     },
     {
       role: "user" as const,
       content: JSON.stringify({
         currentStage: call.analysis.stage,
+        prospectName: call.prospectName,
         facts: call.facts.slice(-8),
         gaps: [...call.gaps],
         mossContext,
@@ -1057,7 +1067,8 @@ function parseClientMessage(raw: RawData): TranscriptEvent | SubscribeEvent | nu
   const record = value as Record<string, unknown>;
   if (record.type === "call.subscribe") {
     const callId = asNonEmptyString(record.callId);
-    return callId ? { type: "call.subscribe", callId } : null;
+    const prospectName = asNonEmptyString(record.prospectName);
+    return callId ? { type: "call.subscribe", callId, prospectName } : null;
   }
 
   if (record.type !== "transcript.turn") return null;
@@ -1282,7 +1293,10 @@ wss.on("connection", (socket) => {
       const event = parseClientMessage(raw);
       if (!event) return;
       subscribeSocketToCall(socket, event.callId);
-      if (event.type === "call.subscribe") return;
+      if (event.type === "call.subscribe") {
+        updateCallContext(event.callId, { prospectName: event.prospectName });
+        return;
+      }
 
       try {
         await ingestTranscriptTurn(event.callId, event);
