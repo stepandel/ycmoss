@@ -142,8 +142,18 @@ const defaultAnalysis: CopilotAnalysis = {
   nextQuestions: [
     {
       priority: "medium",
-      question: "Can you walk me through the last time this came up?",
-      reason: "A concrete past story gives the rep better signal than abstract opinions."
+      question: "Before I say anything about our idea, can you walk me through the last time this came up?",
+      reason: "Starts with their world and pushes toward a concrete recent story."
+    },
+    {
+      priority: "medium",
+      question: "What made that moment painful enough to notice?",
+      reason: "Keeps the call anchored on cost and consequence instead of opinions."
+    },
+    {
+      priority: "low",
+      question: "I may be early here, so stop me if this is not real yet.",
+      reason: "A light statement that disarms the pitch and invites correction."
     }
   ]
 };

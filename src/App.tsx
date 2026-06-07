@@ -126,7 +126,23 @@ const demoTurns: Array<Pick<TranscriptTurn, "speaker" | "text">> = [
 
 const defaultAnalysis: CopilotAnalysis = {
   stage: "Find a problem & get into a story",
-  nextQuestions: []
+  nextQuestions: [
+    {
+      priority: "medium",
+      question: "Before I say anything about our idea, can you walk me through the last time this came up?",
+      reason: "Starts with their world and pushes toward a concrete recent story."
+    },
+    {
+      priority: "medium",
+      question: "What made that moment painful enough to notice?",
+      reason: "Keeps the call anchored on cost and consequence instead of opinions."
+    },
+    {
+      priority: "low",
+      question: "I may be early here, so stop me if this is not real yet.",
+      reason: "A light statement that disarms the pitch and invites correction."
+    }
+  ]
 };
 
 function getRouteMode(): RouteMode {
@@ -592,7 +608,7 @@ export function App() {
             <section className="copilot-card">
               <span className="card-kicker">
                 <Sparkles size={14} />
-                ask next
+                try next
               </span>
               <div className="question-list">
                 {analysis.nextQuestions.map((nextQuestion, index) => (
@@ -609,7 +625,7 @@ export function App() {
               </div>
               <button className="primary-button">
                 <Check size={15} />
-                Use top question
+                Use top prompt
               </button>
             </section>
           ) : (
