@@ -108,5 +108,5 @@ fly deploy
 ## Notes
 
 - The transcript stream is simulated through the founder UI for now.
-- LiveKit video requires real LiveKit credentials.
+- The server exits on startup unless `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` are configured.
 - Co-pilot state is currently in-memory per Node process, which is fine for a prototype but should move to durable/shared storage before scaling across machines.

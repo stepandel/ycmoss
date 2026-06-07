@@ -15,13 +15,19 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const requiredLiveKitEnv = ["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"];
+const missingLiveKitEnv = requiredLiveKitEnv.filter((key) => !process.env[key]);
+
+if (missingLiveKitEnv.length) {
+  console.error(`Missing required LiveKit environment: ${missingLiveKitEnv.join(", ")}`);
+  process.exit(1);
+}
 
 app.use(express.json());
 
 app.get("/api/config", (_req, res) => {
   res.json({
-    livekitUrl: process.env.LIVEKIT_URL ?? "",
-    hasLiveKitCredentials: Boolean(process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET),
+    livekitUrl: process.env.LIVEKIT_URL,
     suggestionMode: openai ? "openai" : "local"
   });
 });
@@ -29,9 +35,6 @@ app.get("/api/config", (_req, res) => {
 app.post("/api/livekit/token", async (req, res) => {
   try {
     const { roomName, identity } = req.body ?? {};
-    if (!process.env.LIVEKIT_API_KEY || !process.env.LIVEKIT_API_SECRET) {
-      return res.status(400).json({ error: "LiveKit credentials are not configured." });
-    }
     if (!roomName || !identity) {
       return res.status(400).json({ error: "roomName and identity are required." });
     }

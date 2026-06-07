@@ -22,7 +22,6 @@ import {
   Sparkles,
   UserRound,
   Users,
-  Video
 } from "lucide-react";
 
 type Speaker = "rep" | "prospect";
@@ -51,7 +50,6 @@ type CallState = {
 
 type Config = {
   livekitUrl: string;
-  hasLiveKitCredentials: boolean;
   suggestionMode: "openai" | "local";
 };
 
@@ -131,8 +129,7 @@ export function App() {
   useEffect(() => {
     fetch("/api/config")
       .then((response) => response.json())
-      .then(setConfig)
-      .catch(() => setConfig({ livekitUrl: "", hasLiveKitCredentials: false, suggestionMode: "local" }));
+      .then(setConfig);
   }, []);
 
   useEffect(() => {
@@ -171,8 +168,8 @@ export function App() {
       setSuggestion({
         type: "suggestion",
         priority: "low",
-        question: "Add LiveKit credentials in .env, then restart the dev server to join the room.",
-        reason: error instanceof Error ? error.message : "LiveKit is not configured yet."
+        question: "LiveKit could not create a room token. Check the server logs, then try joining again.",
+        reason: error instanceof Error ? error.message : "Could not join the LiveKit room."
       });
     } finally {
       setIsJoining(false);
@@ -256,10 +253,9 @@ export function App() {
             </LiveKitRoom>
           ) : (
             <div className="empty-video">
-              <Video size={38} />
               <div>
                 <h2>LiveKit room</h2>
-                <p>{config?.hasLiveKitCredentials ? "Join the room to start video." : "Add LiveKit credentials to enable the call surface."}</p>
+                <p>Join the room to start video.</p>
               </div>
             </div>
           )}
