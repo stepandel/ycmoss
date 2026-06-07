@@ -10,7 +10,7 @@ import {
   useTracks
 } from "@livekit/components-react";
 import { RoomEvent, Track, type Participant, type TrackPublication, type TranscriptionSegment } from "livekit-client";
-import { Check, CircleAlert, Mic, MicOff, Phone, Sparkles, Users } from "lucide-react";
+import { Check, CircleAlert, Mic, MicOff, Phone, Sparkles } from "lucide-react";
 
 type Speaker = "rep" | "prospect";
 
@@ -302,12 +302,12 @@ function LiveTranscriptionBridge({ onTranscript }: LiveTranscriptionBridgeProps)
 export function App() {
   const initialParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const routeMode = useMemo(getRouteMode, []);
-  const initialRoomName = initialParams.get("room") ?? "discovery-demo";
-  const initialIdentity =
-    initialParams.get("identity") ?? `${routeMode}-${Math.floor(Math.random() * 9000) + 1000}`;
+  const roomName = initialParams.get("room") ?? "discovery-demo";
+  const identity = useMemo(
+    () => initialParams.get("identity") ?? `${routeMode}-${Math.floor(Math.random() * 9000) + 1000}`,
+    [initialParams, routeMode]
+  );
   const [config, setConfig] = useState<Config | null>(null);
-  const [identity, setIdentity] = useState(initialIdentity);
-  const [roomName, setRoomName] = useState(initialRoomName);
   const [token, setToken] = useState("");
   const [isJoining, setIsJoining] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
@@ -447,10 +447,10 @@ export function App() {
                 on air · {formatElapsed(elapsedSeconds)}
               </span>
             ) : null}
-            <span className="status-pill">
-              <Users size={13} />
-              shared room
-            </span>
+            <button className="primary-button" onClick={joinRoom} disabled={isJoining}>
+              <Phone size={16} />
+              {token ? "Rejoin" : "Join"}
+            </button>
           </div>
         </header>
 
@@ -479,23 +479,8 @@ export function App() {
           )}
         </section>
 
-        <section className="join-strip glass reveal d2">
-          <label>
-            Room
-            <input value={roomName} onChange={(event) => setRoomName(event.target.value)} />
-          </label>
-          <label>
-            Identity
-            <input value={identity} onChange={(event) => setIdentity(event.target.value)} />
-          </label>
-          <button className="primary-button" onClick={joinRoom} disabled={isJoining}>
-            <Phone size={16} />
-            {token ? "Rejoin" : "Join"}
-          </button>
-        </section>
-
         {isFounder ? (
-          <section className="transcript-panel glass reveal d3">
+          <section className="transcript-panel glass reveal d2">
             <div className="section-title">
               <Mic size={16} />
               <h2>Transcript</h2>

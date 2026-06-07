@@ -198,6 +198,7 @@ p {
 
 .status-row {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   justify-content: flex-end;
@@ -379,16 +380,7 @@ p {
   font-size: 14px;
 }
 
-/* ── join + invite ───────────────────────────────────────────── */
-
-.join-strip {
-  display: grid;
-  grid-template-columns: 1fr 1fr auto;
-  gap: 12px;
-  align-items: end;
-  margin-top: 14px;
-  padding: 16px;
-}
+/* ── forms & buttons ─────────────────────────────────────────── */
 
 label {
   display: grid;
@@ -982,10 +974,6 @@ input:focus {
 
   .status-row {
     justify-content: flex-start;
-  }
-
-  .join-strip {
-    grid-template-columns: 1fr;
   }
 
   .video-stage {
