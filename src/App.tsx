@@ -710,18 +710,16 @@ export function App() {
             )}
           </section>
 
-          <section className="facts-panel">
-            <h3>Captured facts</h3>
-            {callState.facts.length ? (
+          {callState.facts.length ? (
+            <section className="facts-panel">
+              <h3>Captured facts</h3>
               <ul>
                 {callState.facts.map((fact, index) => (
                   <li key={`${fact}-${index}`}>{fact}</li>
                 ))}
               </ul>
-            ) : (
-              <p className="muted">Facts appear here as the prospect describes their current workflow.</p>
-            )}
-          </section>
+            </section>
+          ) : null}
         </aside>
       ) : null}
     </main>
