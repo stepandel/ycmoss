@@ -1,0 +1,355 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ControlBar,
+  GridLayout,
+  LiveKitRoom,
+  ParticipantTile,
+  RoomAudioRenderer,
+  useTracks
+} from "@livekit/components-react";
+import { Track } from "livekit-client";
+import {
+  BadgeCheck,
+  Bot,
+  Check,
+  CircleAlert,
+  CircleDot,
+  Mic,
+  Phone,
+  Play,
+  Send,
+  Sparkles,
+  UserRound,
+  Video
+} from "lucide-react";
+
+type Speaker = "rep" | "prospect";
+
+type TranscriptTurn = {
+  id: string;
+  speaker: Speaker;
+  text: string;
+  timestamp: string;
+};
+
+type Suggestion =
+  | { type: "none" }
+  | {
+      type: "suggestion";
+      priority: "low" | "medium" | "high";
+      question: string;
+      reason: string;
+    };
+
+type CallState = {
+  stage: string;
+  facts: string[];
+  gaps: string[];
+};
+
+type Config = {
+  livekitUrl: string;
+  hasLiveKitCredentials: boolean;
+  suggestionMode: "openai" | "local";
+};
+
+const demoTurns: Array<Pick<TranscriptTurn, "speaker" | "text">> = [
+  {
+    speaker: "prospect",
+    text: "We are currently using Salesforce, but our reps hate updating it after calls."
+  },
+  {
+    speaker: "rep",
+    text: "That makes sense. What happens when those updates are missing?"
+  },
+  {
+    speaker: "prospect",
+    text: "Forecast meetings get messy and managers spend hours chasing notes manually."
+  },
+  {
+    speaker: "prospect",
+    text: "The VP of Sales wants this fixed before next quarter planning."
+  }
+];
+
+function VideoGrid() {
+  const tracks = useTracks(
+    [
+      { source: Track.Source.Camera, withPlaceholder: true },
+      { source: Track.Source.ScreenShare, withPlaceholder: false }
+    ],
+    { onlySubscribed: false }
+  );
+
+  return (
+    <GridLayout tracks={tracks} className="video-grid">
+      <ParticipantTile />
+    </GridLayout>
+  );
+}
+
+export function App() {
+  const callId = useMemo(() => `call-${Date.now()}`, []);
+  const [config, setConfig] = useState<Config | null>(null);
+  const [identity, setIdentity] = useState("rep-demo");
+  const [roomName, setRoomName] = useState("discovery-demo");
+  const [token, setToken] = useState("");
+  const [isJoining, setIsJoining] = useState(false);
+  const [speaker, setSpeaker] = useState<Speaker>("prospect");
+  const [draft, setDraft] = useState("");
+  const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
+  const [suggestion, setSuggestion] = useState<Suggestion>({ type: "none" });
+  const [callState, setCallState] = useState<CallState>({
+    stage: "opening",
+    facts: [],
+    gaps: ["business impact", "decision process", "timeline", "success criteria"]
+  });
+  const [connectionState, setConnectionState] = useState("connecting");
+  const wsRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    fetch("/api/config")
+      .then((response) => response.json())
+      .then(setConfig)
+      .catch(() => setConfig({ livekitUrl: "", hasLiveKitCredentials: false, suggestionMode: "local" }));
+  }, []);
+
+  useEffect(() => {
+    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const socket = new WebSocket(`${protocol}://${window.location.hostname}:8787/ws`);
+    wsRef.current = socket;
+    socket.addEventListener("open", () => setConnectionState("connected"));
+    socket.addEventListener("close", () => setConnectionState("disconnected"));
+    socket.addEventListener("message", (message) => {
+      const event = JSON.parse(message.data);
+      if (event.type === "copilot.update") {
+        if (event.suggestion.type === "suggestion") {
+          setSuggestion(event.suggestion);
+        }
+        setCallState(event.state);
+      }
+    });
+    return () => socket.close();
+  }, []);
+
+  async function joinRoom() {
+    setIsJoining(true);
+    try {
+      const response = await fetch("/api/livekit/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomName, identity })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Could not join room.");
+      setToken(payload.token);
+    } catch (error) {
+      setSuggestion({
+        type: "suggestion",
+        priority: "low",
+        question: "Add LiveKit credentials in .env, then restart the dev server to join the room.",
+        reason: error instanceof Error ? error.message : "LiveKit is not configured yet."
+      });
+    } finally {
+      setIsJoining(false);
+    }
+  }
+
+  function sendTurn(text = draft, nextSpeaker = speaker) {
+    const cleanText = text.trim();
+    if (!cleanText || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+    const turn: TranscriptTurn = {
+      id: crypto.randomUUID(),
+      speaker: nextSpeaker,
+      text: cleanText,
+      timestamp: new Date().toISOString()
+    };
+
+    setTranscript((current) => [...current, turn]);
+    wsRef.current.send(JSON.stringify({ type: "transcript.turn", callId, ...turn, final: true }));
+    setDraft("");
+  }
+
+  function runDemo() {
+    demoTurns.forEach((turn, index) => {
+      window.setTimeout(() => sendTurn(turn.text, turn.speaker), index * 900);
+    });
+  }
+
+  const isLiveKitReady = Boolean(config?.livekitUrl && token);
+
+  return (
+    <main className="shell">
+      <section className="call-panel">
+        <header className="topbar">
+          <div>
+            <h1>Discovery Co-Pilot</h1>
+            <p>Live call, live transcript, restrained next-question suggestions.</p>
+          </div>
+          <div className="status-row">
+            <span className={`status-pill ${connectionState}`}>
+              <CircleDot size={14} />
+              {connectionState}
+            </span>
+            <span className="status-pill">
+              <Sparkles size={14} />
+              {config?.suggestionMode ?? "local"} suggestions
+            </span>
+          </div>
+        </header>
+
+        <section className="video-stage">
+          {isLiveKitReady && config ? (
+            <LiveKitRoom
+              serverUrl={config.livekitUrl}
+              token={token}
+              connect
+              video
+              audio
+              className="livekit-room"
+            >
+              <VideoGrid />
+              <RoomAudioRenderer />
+              <ControlBar />
+            </LiveKitRoom>
+          ) : (
+            <div className="empty-video">
+              <Video size={38} />
+              <div>
+                <h2>LiveKit room</h2>
+                <p>{config?.hasLiveKitCredentials ? "Join the room to start video." : "Add LiveKit credentials to enable the call surface."}</p>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section className="join-strip">
+          <label>
+            Room
+            <input value={roomName} onChange={(event) => setRoomName(event.target.value)} />
+          </label>
+          <label>
+            Identity
+            <input value={identity} onChange={(event) => setIdentity(event.target.value)} />
+          </label>
+          <button className="primary-button" onClick={joinRoom} disabled={isJoining}>
+            <Phone size={17} />
+            {token ? "Rejoin" : "Join"}
+          </button>
+        </section>
+
+        <section className="transcript-panel">
+          <div className="section-title">
+            <Mic size={18} />
+            <h2>Transcript Stream</h2>
+          </div>
+          <div className="transcript-list">
+            {transcript.length === 0 ? (
+              <p className="muted">Send a transcript turn or run the demo to see the co-pilot react.</p>
+            ) : (
+              transcript.map((turn) => (
+                <article key={turn.id} className={`turn ${turn.speaker}`}>
+                  <span>{turn.speaker === "rep" ? "Rep" : "Prospect"}</span>
+                  <p>{turn.text}</p>
+                </article>
+              ))
+            )}
+          </div>
+          <div className="composer">
+            <div className="segmented" role="tablist" aria-label="Speaker">
+              <button className={speaker === "prospect" ? "active" : ""} onClick={() => setSpeaker("prospect")}>
+                <UserRound size={16} />
+                Prospect
+              </button>
+              <button className={speaker === "rep" ? "active" : ""} onClick={() => setSpeaker("rep")}>
+                <BadgeCheck size={16} />
+                Rep
+              </button>
+            </div>
+            <input
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") sendTurn();
+              }}
+              placeholder="Type a transcript turn..."
+            />
+            <button className="icon-button" onClick={() => sendTurn()} aria-label="Send transcript turn">
+              <Send size={18} />
+            </button>
+            <button className="ghost-button" onClick={runDemo}>
+              <Play size={16} />
+              Demo
+            </button>
+          </div>
+        </section>
+      </section>
+
+      <aside className="copilot-panel">
+        <div className="section-title">
+          <Bot size={19} />
+          <h2>Co-Pilot</h2>
+        </div>
+
+        <section className={`suggestion-card ${suggestion.type === "suggestion" ? suggestion.priority : "quiet"}`}>
+          {suggestion.type === "suggestion" ? (
+            <>
+              <div className="priority">
+                <CircleAlert size={16} />
+                {suggestion.priority} priority
+              </div>
+              <h3>{suggestion.question}</h3>
+              <p>{suggestion.reason}</p>
+              <div className="actions">
+                <button className="primary-button">
+                  <Check size={16} />
+                  Use
+                </button>
+                <button className="ghost-button" onClick={() => setSuggestion({ type: "none" })}>
+                  Dismiss
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="priority">
+                <Check size={16} />
+                Listening
+              </div>
+              <h3>No suggestion right now</h3>
+              <p>The co-pilot is intentionally quiet until the transcript exposes a useful next question.</p>
+            </>
+          )}
+        </section>
+
+        <section className="state-panel">
+          <h3>Call State</h3>
+          <dl>
+            <div>
+              <dt>Stage</dt>
+              <dd>{callState.stage.replace("_", " ")}</dd>
+            </div>
+            <div>
+              <dt>Open gaps</dt>
+              <dd>{callState.gaps.length ? callState.gaps.join(", ") : "covered"}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section className="facts-panel">
+          <h3>Captured Facts</h3>
+          {callState.facts.length ? (
+            <ul>
+              {callState.facts.map((fact, index) => (
+                <li key={`${fact}-${index}`}>{fact}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted">Facts appear here as the prospect describes their current workflow.</p>
+          )}
+        </section>
+      </aside>
+    </main>
+  );
+}
