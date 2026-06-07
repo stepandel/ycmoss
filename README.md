@@ -2,7 +2,7 @@
 
 A prototype sales discovery co-pilot for live customer calls.
 
-The app uses LiveKit for the video room, streams transcript turns to a Node WebSocket server, and shows the founder OpenAI-powered discovery stage and next-question recommendations.
+The app uses LiveKit for the video room, streams transcript turns to a Node WebSocket server, and shows the founder MiniMax-powered discovery stage and next-question recommendations.
 
 ## Prototype Paths
 
@@ -10,14 +10,12 @@ The prototype has two role-specific pages that join the same room:
 
 - `/founder` - call UI plus transcript simulator, captured facts, call-state gaps, and co-pilot suggestions.
 - `/prospect` - call-only UI with no co-pilot, transcript, or internal state.
-- `/zoom` - Zoom App-compatible founder co-pilot surface that uses Zoom Apps SDK meeting context when launched inside Zoom.
 
 Both pages use the default room `discovery-demo`. Add a `room` query param to share a specific room:
 
 ```text
 http://127.0.0.1:5173/founder?room=acme-demo
 http://127.0.0.1:5173/prospect?room=acme-demo
-http://127.0.0.1:5173/zoom?room=acme-demo
 ```
 
 ## Stack
@@ -27,7 +25,7 @@ http://127.0.0.1:5173/zoom?room=acme-demo
 - LiveKit Agents for streaming speech-to-text
 - Express for API routes
 - `ws` for transcript/co-pilot WebSocket events
-- OpenAI for co-pilot analysis
+- MiniMax M3 for co-pilot analysis
 - pnpm for package management
 - Fly.io deployment via Docker
 
@@ -56,17 +54,18 @@ LIVEKIT_STT_MODEL=deepgram/nova-3
 LIVEKIT_STT_LANGUAGE=en
 ```
 
-Configure OpenAI:
+Configure MiniMax:
 
 ```text
-OPENAI_API_KEY=your-openai-api-key
-OPENAI_MODEL=gpt-4.1-mini
+MINIMAX_API_KEY=your-minimax-api-key
+MINIMAX_BASE_URL=https://api.minimax.io/v1
+MINIMAX_MODEL=MiniMax-M3
 COPILOT_ANALYSIS_INTERVAL_MS=10000
-OPENAI_PITCH_DRIFT_MODEL=gpt-4.1-mini
+MINIMAX_PITCH_DRIFT_MODEL=MiniMax-M3
 PITCH_DRIFT_INTERVAL_MS=3000
 ```
 
-Without `OPENAI_API_KEY`, the server exits on startup.
+Without `MINIMAX_API_KEY`, the server exits on startup.
 
 Optionally configure Moss context retrieval:
 
@@ -81,7 +80,7 @@ MOSS_AUTO_REFRESH=false
 MOSS_POLLING_INTERVAL_SECONDS=300
 ```
 
-When all three required Moss values are set, the server queries Moss before each co-pilot analysis and injects the returned snippets into the OpenAI prompt as `mossContext`. If Moss is unavailable, the co-pilot logs a warning and falls back to transcript-only analysis.
+When all three required Moss values are set, the server queries Moss before each co-pilot analysis and injects the returned snippets into the MiniMax prompt as `mossContext`. If Moss is unavailable, the co-pilot logs a warning and falls back to transcript-only analysis.
 
 Start the dev server:
 
@@ -130,14 +129,13 @@ The server caches transcript turns per room and runs co-pilot analysis on a thro
 
 If Moss is configured, the analysis query includes the current stage, known facts, open gaps, and recent transcript. Retrieved Moss snippets are treated as reference material for playbook guidance, prospect notes, company notes, and call-stage context; transcript facts still take priority.
 
-The server also runs a separate LLM-based discovery guardrail classifier after founder turns. It uses `OPENAI_PITCH_DRIFT_MODEL` and `PITCH_DRIFT_INTERVAL_MS` to detect pitch drift and classify whether the founder is collecting concrete facts or fluff like empty compliments, vague enthusiasm, and hypothetical willingness. The founder UI shows an always-on Fluff Guard status plus a gentle warning when the founder drifts into pitching or validation.
+The server also runs a separate LLM-based discovery guardrail classifier after founder turns. It uses `MINIMAX_PITCH_DRIFT_MODEL` and `PITCH_DRIFT_INTERVAL_MS` to detect pitch drift and classify whether the founder is collecting concrete facts or fluff like empty compliments, vague enthusiasm, and hypothetical willingness. The founder UI shows an always-on Fluff Guard status plus a gentle warning when the founder drifts into pitching or validation.
 
 ## Deploy
 
 Fly.io is the recommended prototype host because the current app needs long-running Node processes for WebSockets and LiveKit speech-to-text.
 
 See [DEPLOY.md](./DEPLOY.md) for the full Fly setup.
-See [ZOOM_APP.md](./ZOOM_APP.md) for Zoom Marketplace URLs, SDK capabilities, OAuth settings, and transcript-ingest notes.
 
 Short version:
 
@@ -146,7 +144,7 @@ fly apps create ycmoss
 fly secrets set LIVEKIT_URL="wss://your-project.livekit.cloud"
 fly secrets set LIVEKIT_API_KEY="your-livekit-api-key"
 fly secrets set LIVEKIT_API_SECRET="your-livekit-api-secret"
-fly secrets set OPENAI_API_KEY="your-openai-api-key"
+fly secrets set MINIMAX_API_KEY="your-minimax-api-key"
 fly deploy
 fly scale count app=1 stt=1 -a ycmoss
 ```
@@ -154,5 +152,5 @@ fly scale count app=1 stt=1 -a ycmoss
 ## Notes
 
 - The founder UI has manual/demo transcript controls, but live calls depend on the `stt` process group being running in production.
-- The server exits on startup unless LiveKit credentials and `OPENAI_API_KEY` are configured.
+- The server exits on startup unless LiveKit credentials and `MINIMAX_API_KEY` are configured.
 - Co-pilot state is currently in-memory per Node process, which is fine for a prototype but should move to durable/shared storage before scaling across machines.

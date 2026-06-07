@@ -1,5 +1,5 @@
 /* ───────────────────────────────────────────────────────────────
-   Sales Co-Pilot — dark meeting client (Zoom / Meet vernacular)
+   Sales Co-Pilot — dark meeting client
    UI: Lato · Mono: Spline Sans Mono
    ─────────────────────────────────────────────────────────────── */
 
@@ -169,23 +169,6 @@ p {
   color: currentColor;
 }
 
-.status-pill strong {
-  font-weight: 700;
-}
-
-.status-pill.fluff-warning {
-  border-color: rgba(223, 164, 38, 0.5);
-  background: rgba(223, 164, 38, 0.12);
-  color: #ffd889;
-  font-weight: 700;
-}
-
-.status-pill.fluff-warning.collecting_fluff {
-  border-color: rgba(224, 47, 68, 0.55);
-  background: rgba(224, 47, 68, 0.14);
-  color: #ff8d99;
-}
-
 .pip {
   width: 7px;
   height: 7px;
@@ -211,19 +194,16 @@ p {
   background: var(--red);
 }
 
-.status-pill.zoom-ready {
-  border-color: rgba(14, 114, 237, 0.45);
-  color: #7eb3f5;
+.status-pill.fluff-warning {
+  border-color: rgba(223, 164, 38, 0.5);
+  background: rgba(223, 164, 38, 0.12);
+  color: #ecc56a;
 }
 
-.status-pill.zoom-browser,
-.status-pill.zoom-checking {
-  color: var(--text-faint);
-}
-
-.status-pill.zoom-error {
-  border-color: rgba(224, 47, 68, 0.45);
-  color: #f08a96;
+.status-pill.fluff-warning.collecting_fluff {
+  border-color: rgba(224, 47, 68, 0.55);
+  background: rgba(224, 47, 68, 0.14);
+  color: #ff8d99;
 }
 
 /* recording-style elapsed timer */
@@ -333,7 +313,7 @@ p {
   line-height: 1.45;
 }
 
-/* ── control dock (Zoom toolbar) ─────────────────────────────── */
+/* ── control dock ────────────────────────────────────────────── */
 
 .control-dock {
   display: grid;
@@ -505,7 +485,7 @@ p {
   margin-top: 10px;
 }
 
-/* ── side panel (Zoom docked panel) ──────────────────────────── */
+/* ── side panel ──────────────────────────────────────────────── */
 
 .side-panel {
   display: flex;
@@ -610,40 +590,6 @@ p {
   font-size: 12px;
 }
 
-/* ── zoom app card ───────────────────────────────────────────── */
-
-.zoom-panel {
-  display: grid;
-  gap: 11px;
-  padding: 12px;
-  border: 1px solid rgba(14, 114, 237, 0.28);
-  border-radius: var(--radius-md);
-  background: rgba(14, 114, 237, 0.07);
-}
-
-.zoom-meta {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 7px 12px;
-  align-items: baseline;
-}
-
-.zoom-meta span {
-  color: var(--text-faint);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.zoom-meta strong {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  color: var(--text-dim);
-  font-size: 12px;
-  font-weight: 700;
-}
-
 .ghost-button {
   display: inline-flex;
   align-items: center;
@@ -662,15 +608,6 @@ p {
 .ghost-button:hover:not(:disabled) {
   border-color: var(--text-faint);
   color: var(--text);
-}
-
-.zoom-action {
-  justify-self: start;
-}
-
-.zoom-action:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
 }
 
 /* ── discovery arc rail ──────────────────────────────────────── */
@@ -909,6 +846,15 @@ p {
   font-size: 14px;
   font-weight: 700;
   line-height: 1.35;
+}
+
+.recovery-card.compact {
+  padding: 9px 11px;
+}
+
+.recovery-card.compact p {
+  font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 /* ── next questions ──────────────────────────────────────────── */

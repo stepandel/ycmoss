@@ -21,7 +21,6 @@ import {
   Video,
   VideoOff
 } from "lucide-react";
-import { identityFromZoomContext, roomNameFromZoomContext, useZoomAppContext } from "./zoom";
 
 type Speaker = "rep" | "prospect";
 
@@ -432,12 +431,11 @@ function LiveTranscriptionBridge({ onTranscript }: LiveTranscriptionBridgeProps)
 export function App() {
   const initialParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const routeMode = useMemo(getRouteMode, []);
-  const zoomContext = useZoomAppContext();
   const fallbackIdentityRef = useRef(`${routeMode}-${Math.floor(Math.random() * 9000) + 1000}`);
-  const roomName = initialParams.get("room") ?? roomNameFromZoomContext(zoomContext) ?? "discovery-demo";
+  const roomName = initialParams.get("room") ?? "discovery-demo";
   const identity = useMemo(
-    () => initialParams.get("identity") ?? identityFromZoomContext(zoomContext) ?? fallbackIdentityRef.current,
-    [initialParams, zoomContext]
+    () => initialParams.get("identity") ?? fallbackIdentityRef.current,
+    [initialParams]
   );
   const [config, setConfig] = useState<Config | null>(null);
   const [token, setToken] = useState("");
@@ -493,7 +491,7 @@ export function App() {
         }
         setCallState(event.state);
       } else if (event.type === "copilot.error") {
-        setCopilotError(event.error ?? "OpenAI co-pilot analysis failed.");
+        setCopilotError(event.error ?? "MiniMax co-pilot analysis failed.");
       }
     });
     return () => socket.close();
@@ -535,15 +533,6 @@ export function App() {
       setCopilotError(error instanceof Error ? error.message : "Could not join the LiveKit room.");
     } finally {
       setIsJoining(false);
-    }
-  }
-
-  async function startZoomRtms() {
-    try {
-      await zoomContext.startRtms();
-      setCopilotError("");
-    } catch (error) {
-      setCopilotError(error instanceof Error ? error.message : "Could not start Zoom RTMS.");
     }
   }
 
@@ -623,10 +612,6 @@ export function App() {
                 <strong>{Math.round(fluffGuard.confidence * 100)}%</strong>
               </span>
             ) : null}
-            <span className={`status-pill zoom-${zoomContext.status}`}>
-              <Video size={13} />
-              {zoomContext.status === "ready" ? zoomContext.runningContext : `zoom ${zoomContext.status}`}
-            </span>
           </div>
         </header>
 
@@ -736,40 +721,10 @@ export function App() {
           <header className="copilot-head">
             <span className="copilot-glyph">❖</span>
             <div>
-              <h2>{zoomContext.meeting?.meetingTopic ?? prospect.name}</h2>
-              <p>
-                {zoomContext.user?.screenName
-                  ? `${zoomContext.user.screenName} · ${zoomContext.user.role ?? "Zoom participant"}`
-                  : `${prospect.title} · ${prospect.company}`}
-              </p>
+              <h2>{prospect.name}</h2>
+              <p>{`${prospect.title} · ${prospect.company}`}</p>
             </div>
           </header>
-
-          {zoomContext.status === "ready" ? (
-            <section className="zoom-panel">
-              <span className="card-kicker">
-                <Video size={14} />
-                zoom app
-              </span>
-              <div className="zoom-meta">
-                <span>Context</span>
-                <strong>{zoomContext.runningContext}</strong>
-                <span>Room</span>
-                <strong>{roomName}</strong>
-                <span>RTMS</span>
-                <strong>{zoomContext.rtmsStatus ?? "not started"}</strong>
-              </div>
-              <button
-                className="ghost-button zoom-action"
-                type="button"
-                onClick={startZoomRtms}
-                disabled={!zoomContext.isInMeeting}
-              >
-                <Video size={15} />
-                Start RTMS
-              </button>
-            </section>
-          ) : null}
 
           <section className="stage-rail">
             <span className="rail-title">Discovery arc</span>
