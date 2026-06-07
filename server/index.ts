@@ -29,26 +29,39 @@ type TranscriptEvent = {
   timestamp?: string;
 };
 
-type Suggestion =
-  | { type: "none" }
-  | {
-      type: "suggestion";
-      priority: "low" | "medium" | "high";
-      question: string;
-      reason: string;
-    };
+type DiscoveryStage =
+  | "Remove idea from the table"
+  | "Get them telling stories about the past"
+  | "Mine for specific instance for cost consequence"
+  | "Surface the behavioural residue"
+  | "Check for active search"
+  | "Introduce direction"
+  | "Close by pining a concrete next step";
+
+type NextQuestion = {
+  priority: "low" | "medium" | "high";
+  question: string;
+  reason: string;
+};
+
+type CopilotAnalysis = {
+  stage: DiscoveryStage;
+  nextQuestions: NextQuestion[];
+};
 
 type CallState = {
   transcript: TranscriptTurn[];
   facts: string[];
   gaps: Set<string>;
-  stage: string;
-  lastSuggestionAt: number;
+  analysis: CopilotAnalysis;
+  lastAnalysisAt: number;
+  pendingAnalysis?: Promise<CopilotAnalysis>;
 };
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? "0.0.0.0";
 const transcriberAgentName = process.env.LIVEKIT_TRANSCRIBER_AGENT_NAME ?? "transcriber";
+const copilotAnalysisIntervalMs = Number(process.env.COPILOT_ANALYSIS_INTERVAL_MS ?? 10_000);
 const requiredLiveKitEnv = ["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"] as const;
 const missingLiveKitEnv = requiredLiveKitEnv.filter((key) => !process.env[key]);
 
@@ -69,6 +82,25 @@ const wss = new WebSocketServer({ server, path: "/ws" });
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
 const agentDispatchClient = new AgentDispatchClient(livekitApiHost, livekitApiKey, livekitApiSecret);
 const calls = new Map<string, CallState>();
+const discoveryStages = [
+  "Remove idea from the table",
+  "Get them telling stories about the past",
+  "Mine for specific instance for cost consequence",
+  "Surface the behavioural residue",
+  "Check for active search",
+  "Introduce direction",
+  "Close by pining a concrete next step"
+] as const satisfies readonly DiscoveryStage[];
+const defaultAnalysis: CopilotAnalysis = {
+  stage: "Get them telling stories about the past",
+  nextQuestions: [
+    {
+      priority: "medium",
+      question: "Can you walk me through the last time this came up?",
+      reason: "A concrete past story gives the rep better signal than abstract opinions."
+    }
+  ]
+};
 
 app.use(express.json());
 
@@ -168,8 +200,8 @@ function getCall(callId: string): CallState {
       transcript: [],
       facts: [],
       gaps: new Set(["business impact", "decision process", "timeline", "success criteria"]),
-      stage: "opening",
-      lastSuggestionAt: 0
+      analysis: defaultAnalysis,
+      lastAnalysisAt: 0
     });
   }
 
@@ -183,9 +215,6 @@ function updateCallState(call: CallState, turn: TranscriptTurn) {
   const text = turn.text.toLowerCase();
   if (text.includes("using ") || text.includes("we use ") || text.includes("currently")) {
     call.facts.push(`Stack/status quo: ${turn.text}`);
-  }
-  if (text.includes("problem") || text.includes("hard") || text.includes("hate") || text.includes("struggle") || text.includes("slow")) {
-    call.stage = "pain_discovery";
   }
   if (text.includes("cost") || text.includes("revenue") || text.includes("hours") || text.includes("time") || text.includes("pipeline")) {
     call.gaps.delete("business impact");
@@ -203,72 +232,131 @@ function updateCallState(call: CallState, turn: TranscriptTurn) {
   call.facts = call.facts.slice(-8);
 }
 
-function localSuggestion(call: CallState, turn: TranscriptTurn): Suggestion {
-  const text = turn.text.toLowerCase();
-  if (turn.speaker !== "prospect" || turn.text.trim().length < 18) {
-    return { type: "none" };
-  }
-  if (Date.now() - call.lastSuggestionAt < 1_500) {
-    return { type: "none" };
-  }
-
-  const painWords = ["hard", "problem", "hate", "struggle", "manual", "slow", "miss", "messy", "expensive"];
-  if (call.gaps.has("business impact") && painWords.some((word) => text.includes(word))) {
-    return {
-      type: "suggestion",
-      priority: "high",
-      question: "What is that costing the team today in time, pipeline, or missed revenue?",
-      reason: "The prospect described pain, but the business impact is still unclear."
-    };
-  }
-  if (text.includes("using") || text.includes("currently") || text.includes("we use")) {
-    return {
-      type: "suggestion",
-      priority: "medium",
-      question: "What made you start looking beyond the way you handle this today?",
-      reason: "They shared the current workflow, so the next useful thread is motivation to change."
-    };
-  }
-  if ([...call.gaps].includes("decision process") && (text.includes("team") || text.includes("manager") || text.includes("vp"))) {
-    return {
-      type: "suggestion",
-      priority: "medium",
-      question: "Who else usually weighs in when your team decides to change a workflow like this?",
-      reason: "There may be a buying committee, and the decision process has not been mapped."
-    };
-  }
-  return { type: "none" };
-}
-
-function isSuggestionPriority(value: unknown): value is Suggestion extends { type: "suggestion"; priority: infer Priority } ? Priority : never {
+function isQuestionPriority(value: unknown): value is NextQuestion["priority"] {
   return value === "low" || value === "medium" || value === "high";
 }
 
-function parseSuggestion(value: unknown): Suggestion {
-  if (!value || typeof value !== "object") return { type: "none" };
+function isDiscoveryStage(value: unknown): value is DiscoveryStage {
+  return typeof value === "string" && discoveryStages.includes(value as DiscoveryStage);
+}
 
+function parseNextQuestion(value: unknown): NextQuestion | null {
+  if (!value || typeof value !== "object") return null;
   const record = value as Record<string, unknown>;
-  if (record.type === "none") return { type: "none" };
   if (
-    record.type === "suggestion" &&
-    isSuggestionPriority(record.priority) &&
+    isQuestionPriority(record.priority) &&
     typeof record.question === "string" &&
     typeof record.reason === "string"
   ) {
     return {
-      type: "suggestion",
       priority: record.priority,
       question: record.question,
       reason: record.reason
     };
   }
 
-  return { type: "none" };
+  return null;
 }
 
-async function llmSuggestion(call: CallState, turn: TranscriptTurn): Promise<Suggestion> {
+function parseCopilotAnalysis(value: unknown): CopilotAnalysis {
+  if (!value || typeof value !== "object") return defaultAnalysis;
+
+  const record = value as Record<string, unknown>;
+  const stage = isDiscoveryStage(record.stage) ? record.stage : defaultAnalysis.stage;
+  const nextQuestions = Array.isArray(record.nextQuestions)
+    ? record.nextQuestions.map(parseNextQuestion).filter((question): question is NextQuestion => Boolean(question)).slice(0, 3)
+    : [];
+
+  return {
+    stage,
+    nextQuestions: nextQuestions.length ? nextQuestions : defaultAnalysis.nextQuestions
+  };
+}
+
+function localAnalysis(call: CallState): CopilotAnalysis {
+  const recentTranscript = call.transcript.slice(-12);
+  const prospectText = recentTranscript
+    .filter((turn) => turn.speaker === "prospect")
+    .map((turn) => turn.text.toLowerCase())
+    .join(" ");
+
+  if (!prospectText.trim()) return defaultAnalysis;
+
+  if (prospectText.includes("tried") || prospectText.includes("workaround") || prospectText.includes("built") || prospectText.includes("paid")) {
+    return {
+      stage: "Check for active search",
+      nextQuestions: [
+        {
+          priority: "high",
+          question: "Are you actively looking for a better way to handle this right now?",
+          reason: "They described prior attempts, so the next signal is whether there is active search."
+        },
+        {
+          priority: "medium",
+          question: "What made the options you tried fall short?",
+          reason: "Understanding failed fixes exposes buying criteria and urgency."
+        }
+      ]
+    };
+  }
+
+  if (prospectText.includes("hours") || prospectText.includes("cost") || prospectText.includes("revenue") || prospectText.includes("pipeline")) {
+    return {
+      stage: "Surface the behavioural residue",
+      nextQuestions: [
+        {
+          priority: "high",
+          question: "What have you tried to fix this?",
+          reason: "Cost has been surfaced, so the next step is finding evidence of behavior."
+        },
+        {
+          priority: "medium",
+          question: "Are you using anything for it today, even a hacky workaround?",
+          reason: "Workarounds reveal pain strong enough to create action."
+        }
+      ]
+    };
+  }
+
+  const painWords = ["hard", "problem", "hate", "struggle", "manual", "slow", "miss", "messy", "expensive"];
+  if (painWords.some((word) => prospectText.includes(word))) {
+    return {
+      stage: "Mine for specific instance for cost consequence",
+      nextQuestions: [
+        {
+          priority: "high",
+          question: "Walk me through the last time this happened, step by step.",
+          reason: "The prospect described pain; a specific instance will make the cost concrete."
+        },
+        {
+          priority: "medium",
+          question: "How long did that take?",
+          reason: "Time cost is often the easiest consequence to quantify."
+        },
+        {
+          priority: "medium",
+          question: "What happened as a result?",
+          reason: "The rep needs consequence, not just inconvenience."
+        }
+      ]
+    };
+  }
+
+  return {
+    stage: "Get them telling stories about the past",
+    nextQuestions: [
+      {
+        priority: "medium",
+        question: "Can you tell me about the last time this showed up in a real call or workflow?",
+        reason: "Past-tense stories are more reliable than speculative opinions."
+      }
+    ]
+  };
+}
+
+async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
   if (!openai) {
-    return localSuggestion(call, turn);
+    return localAnalysis(call);
   }
 
   try {
@@ -280,26 +368,43 @@ async function llmSuggestion(call: CallState, turn: TranscriptTurn): Promise<Sug
         {
           role: "system",
           content:
-            "You are a restrained sales discovery co-pilot. Suggest one concise next question only when it helps the rep. Otherwise return none. Respond as JSON: {\"type\":\"suggestion\",\"priority\":\"low|medium|high\",\"question\":\"...\",\"reason\":\"...\"} or {\"type\":\"none\"}."
+            `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage and recommend 1-3 concise next questions. Do not invent facts. Prefer questions that move the rep toward concrete past behavior, cost, consequence, active search, and a concrete next step. Respond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}]}. The stage must be exactly one of: ${discoveryStages.join("; ")}.`
         },
         {
           role: "user",
           content: JSON.stringify({
-            stage: call.stage,
-            facts: call.facts,
+            currentStage: call.analysis.stage,
+            facts: call.facts.slice(-8),
             gaps: [...call.gaps],
-            recentTranscript: call.transcript.slice(-10),
-            latestTurn: turn
+            transcript: call.transcript.slice(-40)
           })
         }
       ]
     });
 
-    return parseSuggestion(JSON.parse(response.choices[0]?.message?.content ?? "{\"type\":\"none\"}"));
+    return parseCopilotAnalysis(JSON.parse(response.choices[0]?.message?.content ?? "{}"));
   } catch (error) {
-    console.warn("openai_suggestion_fallback", error instanceof Error ? error.message : error);
-    return localSuggestion(call, turn);
+    console.warn("openai_analysis_fallback", error instanceof Error ? error.message : error);
+    return localAnalysis(call);
   }
+}
+
+async function analyzeCallIfDue(call: CallState): Promise<CopilotAnalysis> {
+  const now = Date.now();
+  if (call.pendingAnalysis) return call.analysis;
+  if (call.lastAnalysisAt && now - call.lastAnalysisAt < copilotAnalysisIntervalMs) return call.analysis;
+
+  call.pendingAnalysis = runLlmAnalysis(call)
+    .then((analysis) => {
+      call.analysis = analysis;
+      call.lastAnalysisAt = Date.now();
+      return analysis;
+    })
+    .finally(() => {
+      call.pendingAnalysis = undefined;
+    });
+
+  return call.pendingAnalysis;
 }
 
 function parseTranscriptEvent(raw: RawData): TranscriptEvent | null {
@@ -341,17 +446,14 @@ wss.on("connection", (socket) => {
       };
 
       updateCallState(call, turn);
-      const suggestion = await llmSuggestion(call, turn);
-      if (suggestion.type === "suggestion") {
-        call.lastSuggestionAt = Date.now();
-      }
+      const analysis = await analyzeCallIfDue(call);
 
       socket.send(JSON.stringify({
         type: "copilot.update",
         callId: event.callId,
-        suggestion,
+        analysis,
         state: {
-          stage: call.stage,
+          stage: analysis.stage,
           facts: call.facts,
           gaps: [...call.gaps]
         }

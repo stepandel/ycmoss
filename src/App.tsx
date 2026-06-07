@@ -37,17 +37,28 @@ type TranscriptTurn = {
   final: boolean;
 };
 
-type Suggestion =
-  | { type: "none" }
-  | {
-      type: "suggestion";
-      priority: "low" | "medium" | "high";
-      question: string;
-      reason: string;
-    };
+type DiscoveryStage =
+  | "Remove idea from the table"
+  | "Get them telling stories about the past"
+  | "Mine for specific instance for cost consequence"
+  | "Surface the behavioural residue"
+  | "Check for active search"
+  | "Introduce direction"
+  | "Close by pining a concrete next step";
+
+type NextQuestion = {
+  priority: "low" | "medium" | "high";
+  question: string;
+  reason: string;
+};
+
+type CopilotAnalysis = {
+  stage: DiscoveryStage;
+  nextQuestions: NextQuestion[];
+};
 
 type CallState = {
-  stage: string;
+  stage: DiscoveryStage;
   facts: string[];
   gaps: string[];
 };
@@ -77,6 +88,11 @@ const demoTurns: Array<Pick<TranscriptTurn, "speaker" | "text">> = [
     text: "The VP of Sales wants this fixed before next quarter planning."
   }
 ];
+
+const defaultAnalysis: CopilotAnalysis = {
+  stage: "Get them telling stories about the past",
+  nextQuestions: []
+};
 
 function getRouteMode(): RouteMode {
   if (window.location.pathname.startsWith("/prospect")) return "prospect";
@@ -174,9 +190,9 @@ export function App() {
   const [speaker, setSpeaker] = useState<Speaker>("prospect");
   const [draft, setDraft] = useState("");
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
-  const [suggestion, setSuggestion] = useState<Suggestion>({ type: "none" });
+  const [analysis, setAnalysis] = useState<CopilotAnalysis>(defaultAnalysis);
   const [callState, setCallState] = useState<CallState>({
-    stage: "opening",
+    stage: defaultAnalysis.stage,
     facts: [],
     gaps: ["business impact", "decision process", "timeline", "success criteria"]
   });
@@ -203,8 +219,8 @@ export function App() {
     socket.addEventListener("message", (message) => {
       const event = JSON.parse(message.data);
       if (event.type === "copilot.update") {
-        if (event.suggestion.type === "suggestion") {
-          setSuggestion(event.suggestion);
+        if (event.analysis) {
+          setAnalysis(event.analysis);
         }
         setCallState(event.state);
       }
@@ -224,11 +240,15 @@ export function App() {
       if (!response.ok) throw new Error(payload.error ?? "Could not join room.");
       setToken(payload.token);
     } catch (error) {
-      setSuggestion({
-        type: "suggestion",
-        priority: "low",
-        question: "LiveKit could not create a room token. Check the server logs, then try joining again.",
-        reason: error instanceof Error ? error.message : "Could not join the LiveKit room."
+      setAnalysis({
+        stage: defaultAnalysis.stage,
+        nextQuestions: [
+          {
+            priority: "low",
+            question: "LiveKit could not create a room token. Check the server logs, then try joining again.",
+            reason: error instanceof Error ? error.message : "Could not join the LiveKit room."
+          }
+        ]
       });
     } finally {
       setIsJoining(false);
@@ -431,22 +451,34 @@ export function App() {
             <h2>Co-Pilot</h2>
           </div>
 
-          <section className={`suggestion-card ${suggestion.type === "suggestion" ? suggestion.priority : "quiet"}`}>
-            {suggestion.type === "suggestion" ? (
+          <section className="stage-panel">
+            <div className="priority">
+              <CircleDot size={16} />
+              Current stage
+            </div>
+            <h3>{analysis.stage}</h3>
+          </section>
+
+          <section className={`suggestion-card ${analysis.nextQuestions[0]?.priority ?? "quiet"}`}>
+            {analysis.nextQuestions.length ? (
               <>
                 <div className="priority">
                   <CircleAlert size={16} />
-                  {suggestion.priority} priority
+                  Recommended next questions
                 </div>
-                <h3>{suggestion.question}</h3>
-                <p>{suggestion.reason}</p>
+                <div className="question-list">
+                  {analysis.nextQuestions.map((nextQuestion, index) => (
+                    <article key={`${nextQuestion.question}-${index}`} className={`question-card ${nextQuestion.priority}`}>
+                      <span>{nextQuestion.priority} priority</span>
+                      <h3>{nextQuestion.question}</h3>
+                      <p>{nextQuestion.reason}</p>
+                    </article>
+                  ))}
+                </div>
                 <div className="actions">
                   <button className="primary-button">
                     <Check size={16} />
-                    Use
-                  </button>
-                  <button className="ghost-button" onClick={() => setSuggestion({ type: "none" })}>
-                    Dismiss
+                    Use top
                   </button>
                 </div>
               </>
@@ -456,8 +488,8 @@ export function App() {
                   <Check size={16} />
                   Listening
                 </div>
-                <h3>No suggestion right now</h3>
-                <p>The co-pilot is intentionally quiet until the transcript exposes a useful next question.</p>
+                <h3>No recommendation yet</h3>
+                <p>The co-pilot is waiting for enough transcript context to recommend the next move.</p>
               </>
             )}
           </section>
@@ -467,7 +499,7 @@ export function App() {
             <dl>
               <div>
                 <dt>Stage</dt>
-                <dd>{callState.stage.replace("_", " ")}</dd>
+                <dd>{callState.stage}</dd>
               </div>
               <div>
                 <dt>Open gaps</dt>

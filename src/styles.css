@@ -66,6 +66,7 @@ h1 {
 .topbar p,
 .muted,
 .suggestion-card p,
+.question-card p,
 .empty-video p {
   color: #647067;
 }
@@ -258,6 +259,7 @@ input:focus {
 
 .transcript-panel,
 .copilot-panel,
+.stage-panel,
 .state-panel,
 .facts-panel {
   border: 1px solid #c7d0c8;
@@ -400,6 +402,7 @@ input:focus {
   padding: 16px;
 }
 
+.stage-panel,
 .suggestion-card {
   display: grid;
   gap: 12px;
@@ -424,9 +427,48 @@ input:focus {
   background: #f0f8fc;
 }
 
+.stage-panel h3,
 .suggestion-card h3 {
   font-size: 21px;
   line-height: 1.24;
+}
+
+.question-list {
+  display: grid;
+  gap: 10px;
+}
+
+.question-card {
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid #d6ded7;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.question-card.high {
+  border-color: #d17b55;
+}
+
+.question-card.medium {
+  border-color: #d3ad44;
+}
+
+.question-card.low {
+  border-color: #8fb8ce;
+}
+
+.question-card span {
+  color: #66736b;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.question-card h3 {
+  font-size: 17px;
+  line-height: 1.28;
 }
 
 .priority {

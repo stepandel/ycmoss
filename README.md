@@ -59,6 +59,7 @@ Optionally configure OpenAI:
 ```text
 OPENAI_API_KEY=your-openai-api-key
 OPENAI_MODEL=gpt-4.1-mini
+COPILOT_ANALYSIS_INTERVAL_MS=10000
 ```
 
 Without `OPENAI_API_KEY`, the app uses a deterministic local suggestion engine.
@@ -103,6 +104,10 @@ In production, the compiled `build/server/index.js` serves the built Vite app fr
 The UI listens for LiveKit Agent transcriptions on the `lk.transcription` text stream and renders interim and final speech-to-text segments in the founder transcript panel. Final STT segments are also forwarded into the co-pilot WebSocket stream so suggestions can react to spoken turns.
 
 `pnpm dev` starts `server/index.ts`, `agents/transcriber.ts`, and Vite together. The join token requests a `transcriber` LiveKit Agent dispatch when a room is created, and the API also creates explicit dispatches as participants join. For two-sided transcription, each participant gets a targeted transcriber dispatch.
+
+## Co-Pilot Analysis
+
+The server caches transcript turns per room and runs co-pilot analysis on a throttle controlled by `COPILOT_ANALYSIS_INTERVAL_MS`. Each analysis returns the current discovery stage plus 1-3 recommended next questions for the rep.
 
 ## Deploy
 
