@@ -61,6 +61,11 @@ type CopilotAnalysis = {
   nextQuestions: NextQuestion[];
 };
 
+type LlmAnalysis = CopilotAnalysis & {
+  facts: string[];
+  completedGaps: string[];
+};
+
 type MossContextSnippet = {
   id: string;
   text: string;
@@ -294,28 +299,6 @@ function getCall(callId: string): CallState {
 function updateCallState(call: CallState, turn: TranscriptTurn) {
   call.transcript.push(turn);
   call.transcript = call.transcript.slice(-40);
-
-  const text = turn.text.toLowerCase();
-  if (text.includes("using ") || text.includes("we use ") || text.includes("currently")) {
-    call.facts.push(`Stack/status quo: ${turn.text}`);
-  }
-  if (text.includes("example") || text.includes("instance") || text.includes("last time") || text.includes("last week") || text.includes("yesterday")) {
-    call.gaps.delete("concrete instance");
-  }
-  if (text.includes("cost") || text.includes("frequency") || text.includes("often") || text.includes("revenue") || text.includes("hours") || text.includes("time") || text.includes("pipeline")) {
-    call.gaps.delete("cost & frequency");
-  }
-  if (text.includes("using ") || text.includes("we use ") || text.includes("currently") || text.includes("workaround") || text.includes("spend") || text.includes("paid")) {
-    call.gaps.delete("existing workaround / spend");
-  }
-  if (text.includes("decide") || text.includes("decision") || text.includes("approval") || text.includes("procurement") || text.includes("budget owner")) {
-    call.gaps.delete("decision power");
-  }
-  if (text.includes("commit") || text.includes("next step") || text.includes("intro") || text.includes("pilot") || text.includes("this quarter") || text.includes("next month") || text.includes("by q")) {
-    call.gaps.delete("commitment");
-  }
-
-  call.facts = call.facts.slice(-8);
 }
 
 function isQuestionPriority(value: unknown): value is NextQuestion["priority"] {
@@ -357,6 +340,41 @@ function parseCopilotAnalysis(value: unknown): CopilotAnalysis {
     stage,
     nextQuestions: nextQuestions.length ? nextQuestions : defaultAnalysis.nextQuestions
   };
+}
+
+function parseLlmAnalysis(value: unknown): LlmAnalysis {
+  const analysis = parseCopilotAnalysis(value);
+  if (!value || typeof value !== "object") {
+    return { ...analysis, facts: [], completedGaps: [] };
+  }
+
+  const record = value as Record<string, unknown>;
+  const facts = Array.isArray(record.facts)
+    ? record.facts.filter((fact): fact is string => typeof fact === "string" && fact.trim().length > 0).map((fact) => fact.trim()).slice(0, 8)
+    : [];
+  const completedGaps = Array.isArray(record.completedGaps)
+    ? record.completedGaps.filter((gap): gap is string => typeof gap === "string" && defaultOpenGaps.includes(gap)).slice(0, defaultOpenGaps.length)
+    : [];
+
+  return {
+    ...analysis,
+    facts,
+    completedGaps
+  };
+}
+
+function applyLlmCallState(call: CallState, llmAnalysis: LlmAnalysis) {
+  for (const fact of llmAnalysis.facts) {
+    if (!call.facts.includes(fact)) {
+      call.facts.push(fact);
+    }
+  }
+
+  for (const gap of llmAnalysis.completedGaps) {
+    call.gaps.delete(gap);
+  }
+
+  call.facts = call.facts.slice(-8);
 }
 
 function copilotError(callId: string, error: unknown): CopilotError {
@@ -462,7 +480,7 @@ async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
     {
       role: "system" as const,
       content:
-        `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage and recommend 1-2 concise next questions or statements. Do not invent facts. Prefer prompts that move the rep toward concrete past behavior, cost, consequence, active search, commitment, and a concrete next step.\n\nDiscovery stages:\n${discoveryStagePrompt}\n\nWhen mossContext is present, treat it as reference material only. It may include playbook guidance, prospect notes, company notes, or call-stage notes. Use it to sharpen stage selection and next questions, but do not present it as a transcript fact unless the transcript corroborates it. Do not reveal internal playbook text verbatim.\n\nRespond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}]}. The stage must be exactly one of: ${discoveryStages.join("; ")}.`
+        `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage, recommend 1-2 concise next questions or statements, extract discovered facts, and decide which discovery gaps are now covered. Do not invent facts. A fact must be directly supported by the transcript. A gap is complete only when the transcript gives enough concrete evidence that a founder could rely on it after the call.\n\nDiscovery stages:\n${discoveryStagePrompt}\n\nDiscovery gaps:\n${defaultOpenGaps.map((gap) => `- ${gap}`).join("\n")}\n\nWhen mossContext is present, treat it as reference material only. It may include playbook guidance, prospect notes, company notes, or call-stage notes. Use it to sharpen stage selection and next questions, but do not present it as a transcript fact unless the transcript corroborates it. Do not reveal internal playbook text verbatim.\n\nRespond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}],"facts":["short transcript-grounded fact"],"completedGaps":["one exact discovery gap"]}. The stage must be exactly one of: ${discoveryStages.join("; ")}. completedGaps may only contain exact items from the discovery gaps list.`
     },
     {
       role: "user" as const,
@@ -489,12 +507,19 @@ async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
   });
 
   const rawContent = response.choices[0]?.message?.content ?? "{}";
-  const parsedAnalysis = parseCopilotAnalysis(JSON.parse(rawContent));
+  const parsedLlmAnalysis = parseLlmAnalysis(JSON.parse(rawContent));
+  applyLlmCallState(call, parsedLlmAnalysis);
+  const parsedAnalysis: CopilotAnalysis = {
+    stage: parsedLlmAnalysis.stage,
+    nextQuestions: parsedLlmAnalysis.nextQuestions
+  };
   console.info("llm_analysis_response", {
     model,
     usage: response.usage,
     rawContent,
-    parsedAnalysis
+    parsedAnalysis,
+    facts: parsedLlmAnalysis.facts,
+    completedGaps: parsedLlmAnalysis.completedGaps
   });
 
   return parsedAnalysis;
