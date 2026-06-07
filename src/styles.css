@@ -878,6 +878,101 @@ input:focus {
   line-height: 1.32;
 }
 
+.recovery-card.compact {
+  padding: 10px 11px;
+}
+
+.recovery-card.compact p {
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.fluff-guard {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--card);
+  box-shadow: inset 3px 0 0 var(--ink-faint);
+}
+
+.fluff-guard.collecting_facts {
+  border-color: rgba(102, 128, 90, 0.34);
+  background: #f2f8ef;
+  box-shadow: inset 3px 0 0 var(--moss);
+}
+
+.fluff-guard.mixed {
+  border-color: rgba(156, 124, 46, 0.34);
+  background: #fff8e8;
+  box-shadow: inset 3px 0 0 var(--ochre);
+}
+
+.fluff-guard.collecting_fluff {
+  border-color: rgba(178, 91, 56, 0.42);
+  background: #faf1ec;
+  box-shadow: inset 3px 0 0 var(--clay);
+}
+
+.fluff-guard-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fluff-guard-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.fluff-guard-meter span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.fluff-guard.collecting_facts .fluff-guard-meter span {
+  background: var(--moss);
+}
+
+.fluff-guard.mixed .fluff-guard-meter span {
+  background: var(--ochre);
+}
+
+.fluff-guard.collecting_fluff .fluff-guard-meter span {
+  background: var(--clay);
+}
+
+.fluff-guard h3 {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.fluff-guard p,
+.fluff-guard li {
+  color: var(--ink-dim);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.fluff-guard ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+}
+
 .copilot-card h3 {
   font-family: var(--font-display);
   font-size: 19px;
