@@ -305,12 +305,14 @@ async function ensureTranscriberDispatch(roomName: string, identity: string) {
     const existingDispatch = dispatches.find(
       (dispatch) => dispatch.agentName === transcriberAgentName && dispatch.metadata === metadata
     );
-    if (existingDispatch) return;
+    if (existingDispatch) return "existing";
 
     await agentDispatchClient.createDispatch(roomName, transcriberAgentName, { metadata });
+    return "created";
   } catch (error) {
-    if (isRoomMissingError(error)) return;
+    if (isRoomMissingError(error)) return "room_missing";
     console.warn("transcriber_dispatch_error", error instanceof Error ? error.message : error);
+    return "error";
   }
 }
 
@@ -349,6 +351,28 @@ app.post("/api/livekit/token", async (req, res) => {
   } catch (error) {
     console.error("token_error", error);
     res.status(500).json({ error: "Could not create LiveKit token." });
+  }
+});
+
+app.post("/api/livekit/dispatch-transcriber", async (req, res) => {
+  try {
+    const tokenRequest = parseTokenRequest(req.body);
+    if (!tokenRequest) {
+      return res.status(400).json({ error: "roomName and identity are required." });
+    }
+
+    const status = await ensureTranscriberDispatch(tokenRequest.roomName, tokenRequest.identity);
+    if (status === "room_missing") {
+      return res.status(404).json({ error: "LiveKit room does not exist yet." });
+    }
+    if (status === "error") {
+      return res.status(500).json({ error: "Could not dispatch transcriber." });
+    }
+
+    res.json({ ok: true, status });
+  } catch (error) {
+    console.error("transcriber_dispatch_request_error", error);
+    res.status(500).json({ error: "Could not dispatch transcriber." });
   }
 });
 

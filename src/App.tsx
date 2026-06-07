@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DisconnectButton,
   GridLayout,
@@ -536,6 +536,31 @@ export function App() {
     }
   }
 
+  const dispatchTranscriber = useCallback(async () => {
+    let lastError = "Could not dispatch transcriber.";
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const response = await fetch("/api/livekit/dispatch-transcriber", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roomName, identity })
+        });
+        if (response.ok) return;
+
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        lastError = payload?.error ?? lastError;
+        if (response.status !== 404 && response.status < 500) break;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : lastError;
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 350 * (attempt + 1)));
+    }
+
+    console.warn("transcriber dispatch failed", lastError);
+  }, [identity, roomName]);
+
   const handleLiveTranscript = useMemo(
     () => (turn: TranscriptTurn) => {
       setTranscript((current) => {
@@ -627,6 +652,7 @@ export function App() {
               setElapsedSeconds(0);
               setLiveKitConnectionState("connected");
               setCopilotError("");
+              void dispatchTranscriber();
             }}
             onDisconnected={() => {
               setLiveKitConnectionState("disconnected");
