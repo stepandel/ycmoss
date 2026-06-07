@@ -546,17 +546,18 @@ export function App() {
                   index < currentStageIndex ? "done" : index === currentStageIndex ? "current" : "ahead";
                 const isCurrent = entry.stage === analysis.stage;
                 const isRevealed = entry.stage === activeRevealedStage;
+                const isExpanded = isCurrent || isRevealed;
                 return (
                   <li
                     key={entry.stage}
-                    className={`${progressState}${isRevealed ? " revealed" : ""}`}
+                    className={`${progressState}${isExpanded ? " revealed" : ""}`}
                     title={`${entry.stage}\nGoal: ${entry.goal}`}
                   >
                     <button
                       type="button"
                       className="rail-trigger"
                       onClick={() => setRevealedStage(entry.stage)}
-                      aria-expanded={isRevealed}
+                      aria-expanded={isExpanded}
                       aria-current={isCurrent ? "step" : undefined}
                     >
                       <span className="rail-step">{String(index + 1).padStart(2, "0")}</span>
@@ -565,7 +566,7 @@ export function App() {
                           <span className="rail-label">{entry.label}</span>
                           {isCurrent ? <span className="rail-current-chip">Current</span> : null}
                         </span>
-                        {isRevealed ? (
+                        {isExpanded ? (
                           <span className="rail-current-detail">
                             <span>{entry.goal}</span>
                           </span>
