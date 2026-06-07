@@ -924,12 +924,26 @@ input:focus {
 }
 
 .gap-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  gap: 6px;
   padding: 5px 12px;
-  border: 1px solid #e0d4b4;
+  border: 1px solid transparent;
   border-radius: 99px;
+  font-size: 12.5px;
+}
+
+.gap-chip.open {
+  border: 1px solid #e0d4b4;
   background: #f6f0de;
   color: #7c621f;
-  font-size: 12.5px;
+}
+
+.gap-chip.complete {
+  border: 1px solid #9acda6;
+  background: #e9f7ed;
+  color: #24663d;
 }
 
 .facts-panel ul {

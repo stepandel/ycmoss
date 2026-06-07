@@ -687,18 +687,19 @@ export function App() {
           )}
 
           <section className="state-panel">
-            <h3>Open gaps</h3>
-            {callState.gaps.length ? (
-              <div className="chip-row">
-                {callState.gaps.map((gap, index) => (
-                  <span key={`${gap}-${index}`} className="gap-chip">
+            <h3>Discovery gaps</h3>
+            <div className="chip-row">
+              {defaultOpenGaps.map((gap) => {
+                const isComplete = !callState.gaps.includes(gap);
+
+                return (
+                  <span key={gap} className={`gap-chip ${isComplete ? "complete" : "open"}`}>
+                    {isComplete ? <Check size={13} strokeWidth={2.4} aria-hidden="true" /> : null}
                     {gap}
                   </span>
-                ))}
-              </div>
-            ) : (
-              <p className="muted">All covered ✦</p>
-            )}
+                );
+              })}
+            </div>
           </section>
 
           {callState.facts.length ? (
