@@ -113,6 +113,59 @@ h1 {
   height: 100%;
 }
 
+.livekit-room {
+  position: relative;
+}
+
+.stage-mic-control {
+  position: absolute;
+  right: 14px;
+  bottom: 78px;
+  z-index: 4;
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+  max-width: min(260px, calc(100% - 28px));
+}
+
+.mic-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 112px;
+  height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  padding: 0 14px;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
+.mic-toggle.live {
+  background: #176b4a;
+}
+
+.mic-toggle.muted {
+  background: #b43f34;
+}
+
+.mic-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+.mic-error {
+  max-width: 100%;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: rgba(26, 32, 29, 0.9);
+  color: #fff1ed;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
 .empty-video {
   display: flex;
   align-items: center;
@@ -461,6 +514,11 @@ ul {
   .video-stage {
     min-height: 280px;
     height: 42vh;
+  }
+
+  .stage-mic-control {
+    right: 10px;
+    bottom: 70px;
   }
 
   .composer {

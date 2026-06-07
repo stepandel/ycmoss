@@ -5,6 +5,7 @@ import {
   LiveKitRoom,
   ParticipantTile,
   RoomAudioRenderer,
+  useLocalParticipant,
   useTranscriptions,
   useTracks
 } from "@livekit/components-react";
@@ -17,6 +18,7 @@ import {
   CircleDot,
   Copy,
   Mic,
+  MicOff,
   Phone,
   Play,
   Send,
@@ -101,6 +103,41 @@ function VideoGrid() {
     <GridLayout tracks={tracks} className="video-grid">
       <ParticipantTile />
     </GridLayout>
+  );
+}
+
+function MicMuteButton() {
+  const { isMicrophoneEnabled, localParticipant } = useLocalParticipant();
+  const [isToggling, setIsToggling] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+
+  async function toggleMicrophone() {
+    setIsToggling(true);
+    setErrorMessage("");
+    try {
+      await localParticipant.setMicrophoneEnabled(!isMicrophoneEnabled);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Could not update microphone.");
+    } finally {
+      setIsToggling(false);
+    }
+  }
+
+  return (
+    <div className="stage-mic-control">
+      <button
+        className={`mic-toggle ${isMicrophoneEnabled ? "live" : "muted"}`}
+        onClick={toggleMicrophone}
+        disabled={isToggling}
+        aria-pressed={!isMicrophoneEnabled}
+        aria-label={isMicrophoneEnabled ? "Mute microphone" : "Unmute microphone"}
+        title={isMicrophoneEnabled ? "Mute microphone" : "Unmute microphone"}
+      >
+        {isMicrophoneEnabled ? <Mic size={18} /> : <MicOff size={18} />}
+        {isMicrophoneEnabled ? "Mute" : "Unmute"}
+      </button>
+      {errorMessage ? <p className="mic-error">{errorMessage}</p> : null}
+    </div>
   );
 }
 
@@ -305,7 +342,8 @@ export function App() {
               <LiveTranscriptionBridge onTranscript={handleLiveTranscript} />
               <VideoGrid />
               <RoomAudioRenderer />
-              <ControlBar />
+              <MicMuteButton />
+              <ControlBar controls={{ microphone: false }} />
             </LiveKitRoom>
           ) : (
             <div className="empty-video">
