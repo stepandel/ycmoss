@@ -252,6 +252,21 @@ p {
   background: var(--clay);
 }
 
+.status-pill.zoom-ready {
+  border-color: rgba(95, 122, 147, 0.34);
+  color: var(--slate);
+}
+
+.status-pill.zoom-browser,
+.status-pill.zoom-checking {
+  color: var(--ink-faint);
+}
+
+.status-pill.zoom-error {
+  border-color: rgba(178, 91, 56, 0.34);
+  color: var(--clay);
+}
+
 .status-pill.onair {
   border-color: rgba(178, 91, 56, 0.4);
   color: var(--clay);
@@ -624,6 +639,48 @@ input:focus {
   letter-spacing: 0.08em;
 }
 
+.zoom-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(95, 122, 147, 0.22);
+  border-radius: var(--radius-md);
+  background: #f7f9f9;
+}
+
+.zoom-meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: baseline;
+}
+
+.zoom-meta span {
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.zoom-meta strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink-dim);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.zoom-action {
+  justify-self: start;
+  height: 36px;
+}
+
+.zoom-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 /* the discovery arc rail */
 
 .stage-rail {
@@ -773,6 +830,52 @@ input:focus {
 
 .copilot-card.error svg {
   color: var(--clay);
+}
+
+.copilot-card.pitch-drift {
+  border-color: rgba(156, 124, 46, 0.38);
+  background: #fff8e8;
+  box-shadow: inset 3px 0 0 var(--ochre);
+}
+
+.copilot-card.pitch-drift.pitching {
+  border-color: rgba(178, 91, 56, 0.42);
+  background: #faf1ec;
+  box-shadow: inset 3px 0 0 var(--clay);
+}
+
+.copilot-card.pitch-drift svg {
+  color: var(--ochre);
+}
+
+.copilot-card.pitch-drift.pitching svg {
+  color: var(--clay);
+}
+
+.recovery-card {
+  display: grid;
+  gap: 5px;
+  padding: 12px 13px;
+  border: 1px solid rgba(156, 124, 46, 0.25);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.recovery-card span {
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.recovery-card p {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.32;
 }
 
 .copilot-card h3 {

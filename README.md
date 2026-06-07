@@ -10,12 +10,14 @@ The prototype has two role-specific pages that join the same room:
 
 - `/founder` - call UI plus transcript simulator, captured facts, call-state gaps, and co-pilot suggestions.
 - `/prospect` - call-only UI with no co-pilot, transcript, or internal state.
+- `/zoom` - Zoom App-compatible founder co-pilot surface that uses Zoom Apps SDK meeting context when launched inside Zoom.
 
 Both pages use the default room `discovery-demo`. Add a `room` query param to share a specific room:
 
 ```text
 http://127.0.0.1:5173/founder?room=acme-demo
 http://127.0.0.1:5173/prospect?room=acme-demo
+http://127.0.0.1:5173/zoom?room=acme-demo
 ```
 
 ## Stack
@@ -60,6 +62,8 @@ Configure OpenAI:
 OPENAI_API_KEY=your-openai-api-key
 OPENAI_MODEL=gpt-4.1-mini
 COPILOT_ANALYSIS_INTERVAL_MS=10000
+OPENAI_PITCH_DRIFT_MODEL=gpt-4.1-mini
+PITCH_DRIFT_INTERVAL_MS=3000
 ```
 
 Without `OPENAI_API_KEY`, the server exits on startup.
@@ -126,11 +130,14 @@ The server caches transcript turns per room and runs co-pilot analysis on a thro
 
 If Moss is configured, the analysis query includes the current stage, known facts, open gaps, and recent transcript. Retrieved Moss snippets are treated as reference material for playbook guidance, prospect notes, company notes, and call-stage context; transcript facts still take priority.
 
+The server also runs a separate LLM-based pitch-drift classifier after founder turns. It uses `OPENAI_PITCH_DRIFT_MODEL` and `PITCH_DRIFT_INTERVAL_MS` to detect when the founder is drifting into pitching or validation, then sends a gentle guardrail warning plus a recovery question to the founder UI.
+
 ## Deploy
 
 Fly.io is the recommended prototype host because the current app needs long-running Node processes for WebSockets and LiveKit speech-to-text.
 
 See [DEPLOY.md](./DEPLOY.md) for the full Fly setup.
+See [ZOOM_APP.md](./ZOOM_APP.md) for Zoom Marketplace URLs, SDK capabilities, OAuth settings, and transcript-ingest notes.
 
 Short version:
 

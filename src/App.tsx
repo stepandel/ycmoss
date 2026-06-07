@@ -10,7 +10,8 @@ import {
   useTracks
 } from "@livekit/components-react";
 import { RoomEvent, Track, type Participant, type TrackPublication, type TranscriptionSegment } from "livekit-client";
-import { Check, CircleAlert, Mic, MicOff, Phone, Sparkles } from "lucide-react";
+import { Check, CircleAlert, Mic, MicOff, Phone, Sparkles, Video } from "lucide-react";
+import { identityFromZoomContext, roomNameFromZoomContext, useZoomAppContext } from "./zoom";
 
 type Speaker = "rep" | "prospect";
 
@@ -40,6 +41,17 @@ type NextQuestion = {
 type CopilotAnalysis = {
   stage: DiscoveryStage;
   nextQuestions: NextQuestion[];
+};
+
+type PitchDriftState = "on_discovery_path" | "drifting" | "pitching" | "recovering";
+
+type PitchDriftAnalysis = {
+  state: PitchDriftState;
+  confidence: number;
+  shouldWarn: boolean;
+  warning: string;
+  recoveryQuestion: string;
+  reasons: string[];
 };
 
 type CallState = {
@@ -200,6 +212,15 @@ const defaultAnalysis: CopilotAnalysis = {
   nextQuestions: stagePromptPlaceholders["Just here to learn"]
 };
 
+const defaultPitchDrift: PitchDriftAnalysis = {
+  state: "on_discovery_path",
+  confidence: 0,
+  shouldWarn: false,
+  warning: "",
+  recoveryQuestion: "Can you walk me through the last time this happened?",
+  reasons: []
+};
+
 function getRouteMode(): RouteMode {
   if (window.location.pathname.startsWith("/prospect")) return "prospect";
   return "founder";
@@ -303,16 +324,19 @@ function LiveTranscriptionBridge({ onTranscript }: LiveTranscriptionBridgeProps)
 export function App() {
   const initialParams = useMemo(() => new URLSearchParams(window.location.search), []);
   const routeMode = useMemo(getRouteMode, []);
-  const roomName = initialParams.get("room") ?? "discovery-demo";
+  const zoomContext = useZoomAppContext();
+  const fallbackIdentityRef = useRef(`${routeMode}-${Math.floor(Math.random() * 9000) + 1000}`);
+  const roomName = initialParams.get("room") ?? roomNameFromZoomContext(zoomContext) ?? "discovery-demo";
   const identity = useMemo(
-    () => initialParams.get("identity") ?? `${routeMode}-${Math.floor(Math.random() * 9000) + 1000}`,
-    [initialParams, routeMode]
+    () => initialParams.get("identity") ?? identityFromZoomContext(zoomContext) ?? fallbackIdentityRef.current,
+    [initialParams, zoomContext]
   );
   const [config, setConfig] = useState<Config | null>(null);
   const [token, setToken] = useState("");
   const [isJoining, setIsJoining] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
   const [analysis, setAnalysis] = useState<CopilotAnalysis>(defaultAnalysis);
+  const [pitchDrift, setPitchDrift] = useState<PitchDriftAnalysis>(defaultPitchDrift);
   const [copilotError, setCopilotError] = useState("");
   const [callState, setCallState] = useState<CallState>({
     stage: defaultAnalysis.stage,
@@ -354,6 +378,9 @@ export function App() {
         setCopilotError("");
         if (event.analysis) {
           setAnalysis(event.analysis);
+        }
+        if (event.pitchDrift) {
+          setPitchDrift(event.pitchDrift);
         }
         setCallState(event.state);
       } else if (event.type === "copilot.error") {
@@ -399,6 +426,15 @@ export function App() {
       setCopilotError(error instanceof Error ? error.message : "Could not join the LiveKit room.");
     } finally {
       setIsJoining(false);
+    }
+  }
+
+  async function startZoomRtms() {
+    try {
+      await zoomContext.startRtms();
+      setCopilotError("");
+    } catch (error) {
+      setCopilotError(error instanceof Error ? error.message : "Could not start Zoom RTMS.");
     }
   }
 
@@ -454,6 +490,10 @@ export function App() {
             <span className={`status-pill ${liveKitConnectionState}`}>
               <span className="pip" />
               room {liveKitConnectionState}
+            </span>
+            <span className={`status-pill zoom-${zoomContext.status}`}>
+              <Video size={14} />
+              zoom {zoomContext.status === "ready" ? zoomContext.runningContext : zoomContext.status}
             </span>
             {isLiveKitConnected ? (
               <span className="status-pill onair">
@@ -537,12 +577,40 @@ export function App() {
           <header className="copilot-head">
             <span className="copilot-glyph">❖</span>
             <div>
-              <h2>{prospect.name}</h2>
+              <h2>{zoomContext.meeting?.meetingTopic ?? prospect.name}</h2>
               <p>
-                {prospect.title} · {prospect.company}
+                {zoomContext.user?.screenName
+                  ? `${zoomContext.user.screenName} · ${zoomContext.user.role ?? "Zoom participant"}`
+                  : `${prospect.title} · ${prospect.company}`}
               </p>
             </div>
           </header>
+
+          {zoomContext.status === "ready" ? (
+            <section className="zoom-panel">
+              <span className="card-kicker">
+                <Video size={14} />
+                zoom app
+              </span>
+              <div className="zoom-meta">
+                <span>Context</span>
+                <strong>{zoomContext.runningContext}</strong>
+                <span>Room</span>
+                <strong>{roomName}</strong>
+                <span>RTMS</span>
+                <strong>{zoomContext.rtmsStatus ?? "not started"}</strong>
+              </div>
+              <button
+                className="ghost-button zoom-action"
+                type="button"
+                onClick={startZoomRtms}
+                disabled={!zoomContext.isInMeeting}
+              >
+                <Video size={15} />
+                Start RTMS
+              </button>
+            </section>
+          ) : null}
 
           <section className="stage-rail">
             <span className="rail-title">Discovery arc</span>
@@ -594,7 +662,24 @@ export function App() {
               <h3>Analysis failed</h3>
               <p>{copilotError}</p>
             </section>
-          ) : visiblePrompts.length ? (
+          ) : null}
+
+          {!copilotError && pitchDrift.shouldWarn ? (
+            <section className={`copilot-card pitch-drift ${pitchDrift.state}`}>
+              <span className="card-kicker">
+                <CircleAlert size={14} />
+                discovery guardrail
+              </span>
+              <h3>{pitchDrift.warning || "You may be drifting into pitch mode."}</h3>
+              <article className="recovery-card">
+                <span>Try this</span>
+                <p>{pitchDrift.recoveryQuestion}</p>
+              </article>
+              {pitchDrift.reasons.length ? <p>{pitchDrift.reasons[0]}</p> : null}
+            </section>
+          ) : null}
+
+          {!copilotError && visiblePrompts.length ? (
             <section className="copilot-card">
               <span className="card-kicker">
                 <Sparkles size={14} />
@@ -613,7 +698,7 @@ export function App() {
                 ))}
               </div>
             </section>
-          ) : (
+          ) : !copilotError ? (
             <section className="copilot-card quiet">
               <span className="card-kicker">
                 <span className="pip live" />
@@ -622,7 +707,7 @@ export function App() {
               <h3>No recommendation yet</h3>
               <p>The co-pilot is waiting for enough transcript context to recommend the next move.</p>
             </section>
-          )}
+          ) : null}
 
           <section className="state-panel">
             <h3>Discovery gaps</h3>
