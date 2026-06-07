@@ -32,6 +32,28 @@ Deploy:
 fly deploy
 ```
 
+## GitHub Actions Deploy
+
+This repo includes `.github/workflows/fly.yml`, which deploys to Fly on every push to `main` and can also be run manually from the GitHub Actions tab.
+
+Create a Fly deploy token:
+
+```bash
+fly tokens create deploy -a ycmoss
+```
+
+Store it in GitHub:
+
+```bash
+gh secret set FLY_API_TOKEN --repo stepandel/ycmoss --body "your-fly-deploy-token"
+```
+
+The workflow uses Fly's official GitHub Actions setup:
+
+```yaml
+uses: superfly/flyctl-actions/setup-flyctl@master
+```
+
 The Docker image uses pnpm through Corepack. Local development uses the same package manager:
 
 ```bash
