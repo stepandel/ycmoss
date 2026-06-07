@@ -5,6 +5,16 @@ import { fileURLToPath } from "node:url";
 
 const sttModel = process.env.LIVEKIT_STT_MODEL ?? "deepgram/nova-3";
 const sttLanguage = process.env.LIVEKIT_STT_LANGUAGE ?? "en";
+const agentName = process.env.LIVEKIT_TRANSCRIBER_AGENT_NAME ?? "transcriber";
+
+function getTargetParticipantIdentity(metadata) {
+  if (!metadata) return undefined;
+  try {
+    return JSON.parse(metadata).participantIdentity;
+  } catch {
+    return undefined;
+  }
+}
 
 export default defineAgent({
   prewarm: async (proc) => {
@@ -12,7 +22,8 @@ export default defineAgent({
   },
   entry: async (ctx) => {
     await ctx.connect(undefined, AutoSubscribe.AUDIO_ONLY);
-    const participant = await ctx.waitForParticipant();
+    const targetIdentity = getTargetParticipantIdentity(ctx.info.job.metadata);
+    const participant = await ctx.waitForParticipant(targetIdentity);
 
     const agent = new voice.Agent({
       instructions: "Transcribe the linked participant. Do not speak or generate replies."
@@ -52,4 +63,4 @@ export default defineAgent({
   }
 });
 
-cli.runApp(new ServerOptions({ agent: fileURLToPath(import.meta.url) }));
+cli.runApp(new ServerOptions({ agent: fileURLToPath(import.meta.url), agentName }));

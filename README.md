@@ -49,6 +49,7 @@ Configure LiveKit:
 LIVEKIT_URL=wss://your-project.livekit.cloud
 LIVEKIT_API_KEY=your-livekit-api-key
 LIVEKIT_API_SECRET=your-livekit-api-secret
+LIVEKIT_TRANSCRIBER_AGENT_NAME=transcriber
 LIVEKIT_STT_MODEL=deepgram/nova-3
 LIVEKIT_STT_LANGUAGE=en
 ```
@@ -66,12 +67,6 @@ Start the dev server:
 
 ```bash
 pnpm dev
-```
-
-Start the dev server with the LiveKit STT worker:
-
-```bash
-pnpm dev:all
 ```
 
 Open:
@@ -107,7 +102,7 @@ In production, `server/index.mjs` serves the built Vite app from `dist`, exposes
 
 The UI listens for LiveKit Agent transcriptions on the `lk.transcription` text stream and renders interim and final speech-to-text segments in the founder transcript panel. Final STT segments are also forwarded into the co-pilot WebSocket stream so suggestions can react to spoken turns.
 
-Run `pnpm dev:stt` or `pnpm dev:all` to start `agents/transcriber.mjs`. The worker joins LiveKit rooms as a silent transcriber, listens to the first linked participant, and publishes transcript text back through LiveKit. For two-sided transcription, run separate dispatches per participant or expand the worker to create one session per participant.
+`pnpm dev` starts `agents/transcriber.mjs` alongside the API and Vite. The join token requests a `transcriber` LiveKit Agent dispatch when a room is created, so the worker can join while only one human participant is present. For two-sided transcription, run separate dispatches per participant or expand the worker to create one session per participant.
 
 ## Deploy
 

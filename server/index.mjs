@@ -5,10 +5,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import OpenAI from "openai";
-import { AccessToken } from "livekit-server-sdk";
+import { AccessToken, RoomAgentDispatch, RoomConfiguration } from "livekit-server-sdk";
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? "0.0.0.0";
+const transcriberAgentName = process.env.LIVEKIT_TRANSCRIBER_AGENT_NAME ?? "transcriber";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = path.resolve(__dirname, "../dist");
 const app = express();
@@ -42,6 +43,15 @@ app.post("/api/livekit/token", async (req, res) => {
     const token = new AccessToken(process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET, {
       identity,
       ttl: "2h"
+    });
+    token.roomConfig = new RoomConfiguration({
+      name: roomName,
+      agents: [
+        new RoomAgentDispatch({
+          agentName: transcriberAgentName,
+          metadata: JSON.stringify({ participantIdentity: identity })
+        })
+      ]
     });
     token.addGrant({
       room: roomName,

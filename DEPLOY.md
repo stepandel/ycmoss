@@ -71,3 +71,5 @@ pnpm start:stt
 ```
 
 Run them as separate long-running processes in production. The worker joins rooms as a silent transcriber and publishes speech-to-text segments back to the UI through LiveKit's `lk.transcription` text stream.
+
+The API includes a `transcriber` room-agent dispatch in LiveKit join tokens. Keep `LIVEKIT_TRANSCRIBER_AGENT_NAME` aligned between the API server and worker if you change it.
