@@ -49,7 +49,7 @@ The Docker image uses pnpm through Corepack. Local development uses the same pac
 
 ```bash
 pnpm install
-pnpm dev:all
+pnpm dev
 ```
 
 Open the two prototype paths:

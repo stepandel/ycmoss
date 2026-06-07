@@ -1,23 +1,55 @@
 import "dotenv/config";
 import express from "express";
 import http from "node:http";
+import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { WebSocketServer } from "ws";
 import OpenAI from "openai";
 import { AccessToken, AgentDispatchClient, RoomAgentDispatch, RoomConfiguration } from "livekit-server-sdk";
+import { WebSocketServer, type RawData } from "ws";
+
+type Speaker = "rep" | "prospect";
+
+type TranscriptTurn = {
+  id: string;
+  speaker: Speaker;
+  text: string;
+  final: boolean;
+  timestamp: string;
+};
+
+type TranscriptEvent = {
+  type: "transcript.turn";
+  callId: string;
+  id?: string;
+  speaker: Speaker;
+  text: string;
+  final?: boolean;
+  timestamp?: string;
+};
+
+type Suggestion =
+  | { type: "none" }
+  | {
+      type: "suggestion";
+      priority: "low" | "medium" | "high";
+      question: string;
+      reason: string;
+    };
+
+type CallState = {
+  transcript: TranscriptTurn[];
+  facts: string[];
+  gaps: Set<string>;
+  stage: string;
+  lastSuggestionAt: number;
+};
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? "0.0.0.0";
 const transcriberAgentName = process.env.LIVEKIT_TRANSCRIBER_AGENT_NAME ?? "transcriber";
-const livekitApiHost = process.env.LIVEKIT_URL?.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const distDir = path.resolve(__dirname, "../dist");
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: "/ws" });
-const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
-const requiredLiveKitEnv = ["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"];
+const requiredLiveKitEnv = ["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"] as const;
 const missingLiveKitEnv = requiredLiveKitEnv.filter((key) => !process.env[key]);
 
 if (missingLiveKitEnv.length) {
@@ -25,33 +57,53 @@ if (missingLiveKitEnv.length) {
   process.exit(1);
 }
 
-const agentDispatchClient = new AgentDispatchClient(
-  livekitApiHost,
-  process.env.LIVEKIT_API_KEY,
-  process.env.LIVEKIT_API_SECRET
-);
+const livekitUrl = process.env.LIVEKIT_URL as string;
+const livekitApiKey = process.env.LIVEKIT_API_KEY as string;
+const livekitApiSecret = process.env.LIVEKIT_API_SECRET as string;
+const livekitApiHost = livekitUrl.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distDir = [path.resolve(__dirname, "../dist"), path.resolve(__dirname, "../../dist")].find(existsSync) ?? path.resolve(__dirname, "../dist");
+const app = express();
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server, path: "/ws" });
+const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const agentDispatchClient = new AgentDispatchClient(livekitApiHost, livekitApiKey, livekitApiSecret);
+const calls = new Map<string, CallState>();
 
 app.use(express.json());
 
 app.get("/api/config", (_req, res) => {
   res.json({
-    livekitUrl: process.env.LIVEKIT_URL,
+    livekitUrl,
     suggestionMode: openai ? "openai" : "local"
   });
 });
 
-function transcriberDispatchMetadata(identity) {
+function asNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function parseTokenRequest(body: unknown): { roomName: string; identity: string } | null {
+  if (!body || typeof body !== "object") return null;
+
+  const record = body as Record<string, unknown>;
+  const roomName = asNonEmptyString(record.roomName);
+  const identity = asNonEmptyString(record.identity);
+  if (!roomName || !identity) return null;
+
+  return { roomName, identity };
+}
+
+function transcriberDispatchMetadata(identity: string) {
   return JSON.stringify({ participantIdentity: identity });
 }
 
-function isRoomMissingError(error) {
+function isRoomMissingError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("room not found") || message.includes("requested room does not exist") || message.includes("not found");
 }
 
-async function ensureTranscriberDispatch(roomName, identity) {
-  if (!agentDispatchClient) return;
-
+async function ensureTranscriberDispatch(roomName: string, identity: string) {
   const metadata = transcriberDispatchMetadata(identity);
   try {
     const dispatches = await agentDispatchClient.listDispatch(roomName);
@@ -69,12 +121,13 @@ async function ensureTranscriberDispatch(roomName, identity) {
 
 app.post("/api/livekit/token", async (req, res) => {
   try {
-    const { roomName, identity } = req.body ?? {};
-    if (!roomName || !identity) {
+    const tokenRequest = parseTokenRequest(req.body);
+    if (!tokenRequest) {
       return res.status(400).json({ error: "roomName and identity are required." });
     }
 
-    const token = new AccessToken(process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET, {
+    const { roomName, identity } = tokenRequest;
+    const token = new AccessToken(livekitApiKey, livekitApiSecret, {
       identity,
       ttl: "2h"
     });
@@ -109,9 +162,7 @@ app.get(["/", "/founder", "/prospect"], (_req, res) => {
   res.sendFile(path.join(distDir, "index.html"));
 });
 
-const calls = new Map();
-
-function getCall(callId) {
+function getCall(callId: string): CallState {
   if (!calls.has(callId)) {
     calls.set(callId, {
       transcript: [],
@@ -121,10 +172,11 @@ function getCall(callId) {
       lastSuggestionAt: 0
     });
   }
-  return calls.get(callId);
+
+  return calls.get(callId) as CallState;
 }
 
-function updateCallState(call, turn) {
+function updateCallState(call: CallState, turn: TranscriptTurn) {
   call.transcript.push(turn);
   call.transcript = call.transcript.slice(-40);
 
@@ -151,7 +203,7 @@ function updateCallState(call, turn) {
   call.facts = call.facts.slice(-8);
 }
 
-function localSuggestion(call, turn) {
+function localSuggestion(call: CallState, turn: TranscriptTurn): Suggestion {
   const text = turn.text.toLowerCase();
   if (turn.speaker !== "prospect" || turn.text.trim().length < 18) {
     return { type: "none" };
@@ -188,7 +240,33 @@ function localSuggestion(call, turn) {
   return { type: "none" };
 }
 
-async function llmSuggestion(call, turn) {
+function isSuggestionPriority(value: unknown): value is Suggestion extends { type: "suggestion"; priority: infer Priority } ? Priority : never {
+  return value === "low" || value === "medium" || value === "high";
+}
+
+function parseSuggestion(value: unknown): Suggestion {
+  if (!value || typeof value !== "object") return { type: "none" };
+
+  const record = value as Record<string, unknown>;
+  if (record.type === "none") return { type: "none" };
+  if (
+    record.type === "suggestion" &&
+    isSuggestionPriority(record.priority) &&
+    typeof record.question === "string" &&
+    typeof record.reason === "string"
+  ) {
+    return {
+      type: "suggestion",
+      priority: record.priority,
+      question: record.question,
+      reason: record.reason
+    };
+  }
+
+  return { type: "none" };
+}
+
+async function llmSuggestion(call: CallState, turn: TranscriptTurn): Promise<Suggestion> {
   if (!openai) {
     return localSuggestion(call, turn);
   }
@@ -217,22 +295,45 @@ async function llmSuggestion(call, turn) {
       ]
     });
 
-    return JSON.parse(response.choices[0]?.message?.content ?? "{\"type\":\"none\"}");
+    return parseSuggestion(JSON.parse(response.choices[0]?.message?.content ?? "{\"type\":\"none\"}"));
   } catch (error) {
     console.warn("openai_suggestion_fallback", error instanceof Error ? error.message : error);
     return localSuggestion(call, turn);
   }
 }
 
+function parseTranscriptEvent(raw: RawData): TranscriptEvent | null {
+  const value = JSON.parse(raw.toString()) as unknown;
+  if (!value || typeof value !== "object") return null;
+
+  const record = value as Record<string, unknown>;
+  if (record.type !== "transcript.turn") return null;
+
+  const callId = asNonEmptyString(record.callId);
+  const text = asNonEmptyString(record.text);
+  const speaker = record.speaker;
+  if (!callId || !text || (speaker !== "rep" && speaker !== "prospect")) return null;
+
+  return {
+    type: "transcript.turn",
+    callId,
+    speaker,
+    text,
+    id: typeof record.id === "string" ? record.id : undefined,
+    final: typeof record.final === "boolean" ? record.final : undefined,
+    timestamp: typeof record.timestamp === "string" ? record.timestamp : undefined
+  };
+}
+
 wss.on("connection", (socket) => {
   socket.on("message", async (raw) => {
     try {
-      const event = JSON.parse(raw.toString());
-      if (event.type !== "transcript.turn") return;
+      const event = parseTranscriptEvent(raw);
+      if (!event) return;
 
       const call = getCall(event.callId);
-      const turn = {
-        id: event.id ?? crypto.randomUUID(),
+      const turn: TranscriptTurn = {
+        id: event.id ?? randomUUID(),
         speaker: event.speaker,
         text: event.text,
         final: event.final ?? true,

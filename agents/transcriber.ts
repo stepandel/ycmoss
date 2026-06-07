@@ -1,29 +1,43 @@
 import "dotenv/config";
-import { AutoSubscribe, ServerOptions, cli, defineAgent, inference, voice } from "@livekit/agents";
+import { AutoSubscribe, ServerOptions, cli, defineAgent, inference, voice, type JobProcess } from "@livekit/agents";
 import * as silero from "@livekit/agents-plugin-silero";
 import { fileURLToPath } from "node:url";
+
+type TranscriberProcessData = {
+  vad?: silero.VAD;
+};
+
+type DispatchMetadata = {
+  participantIdentity?: string;
+};
 
 const sttModel = process.env.LIVEKIT_STT_MODEL ?? "deepgram/nova-3";
 const sttLanguage = process.env.LIVEKIT_STT_LANGUAGE ?? "en";
 const agentName = process.env.LIVEKIT_TRANSCRIBER_AGENT_NAME ?? "transcriber";
 
-function getTargetParticipantIdentity(metadata) {
+function getTargetParticipantIdentity(metadata: string): string | undefined {
   if (!metadata) return undefined;
   try {
-    return JSON.parse(metadata).participantIdentity;
+    const parsed = JSON.parse(metadata) as DispatchMetadata;
+    return typeof parsed.participantIdentity === "string" ? parsed.participantIdentity : undefined;
   } catch {
     return undefined;
   }
 }
 
-export default defineAgent({
-  prewarm: async (proc) => {
+export default defineAgent<TranscriberProcessData>({
+  prewarm: async (proc: JobProcess<TranscriberProcessData>) => {
     proc.userData.vad = await silero.VAD.load();
   },
   entry: async (ctx) => {
     await ctx.connect(undefined, AutoSubscribe.AUDIO_ONLY);
     const targetIdentity = getTargetParticipantIdentity(ctx.info.job.metadata);
     const participant = await ctx.waitForParticipant(targetIdentity);
+    const vad = ctx.proc.userData.vad;
+
+    if (!vad) {
+      throw new Error("Transcriber VAD was not initialized.");
+    }
 
     const agent = new voice.Agent({
       instructions: "Transcribe the linked participant. Do not speak or generate replies."
@@ -38,9 +52,9 @@ export default defineAgent({
           punctuate: true,
           smart_format: true
         },
-        vad: ctx.proc.userData.vad
+        vad
       }),
-      vad: ctx.proc.userData.vad,
+      vad,
       userAwayTimeout: null
     });
 

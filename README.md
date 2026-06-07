@@ -96,13 +96,13 @@ Run the production STT worker in a separate process:
 pnpm start:stt
 ```
 
-In production, `server/index.mjs` serves the built Vite app from `dist`, exposes `/api/livekit/token`, and keeps the `/ws` transcript stream available. `agents/transcriber.mjs` joins rooms as a silent LiveKit Agent and publishes speech-to-text segments back to the UI.
+In production, the compiled `build/server/index.js` serves the built Vite app from `dist`, exposes `/api/livekit/token`, and keeps the `/ws` transcript stream available. The compiled `build/agents/transcriber.js` worker joins rooms as a silent LiveKit Agent and publishes speech-to-text segments back to the UI.
 
 ## Live Transcription
 
 The UI listens for LiveKit Agent transcriptions on the `lk.transcription` text stream and renders interim and final speech-to-text segments in the founder transcript panel. Final STT segments are also forwarded into the co-pilot WebSocket stream so suggestions can react to spoken turns.
 
-`pnpm dev` starts `agents/transcriber.mjs` alongside the API and Vite. The join token requests a `transcriber` LiveKit Agent dispatch when a room is created, so the worker can join while only one human participant is present. For two-sided transcription, run separate dispatches per participant or expand the worker to create one session per participant.
+`pnpm dev` starts `server/index.ts`, `agents/transcriber.ts`, and Vite together. The join token requests a `transcriber` LiveKit Agent dispatch when a room is created, and the API also creates explicit dispatches as participants join. For two-sided transcription, each participant gets a targeted transcriber dispatch.
 
 ## Deploy
 
