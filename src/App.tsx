@@ -190,6 +190,7 @@ export function App() {
   const [draft, setDraft] = useState("");
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
   const [analysis, setAnalysis] = useState<CopilotAnalysis>(defaultAnalysis);
+  const [copilotError, setCopilotError] = useState("");
   const [callState, setCallState] = useState<CallState>({
     stage: defaultAnalysis.stage,
     facts: [],
@@ -218,21 +219,13 @@ export function App() {
     socket.addEventListener("message", (message) => {
       const event = JSON.parse(message.data);
       if (event.type === "copilot.update") {
+        setCopilotError("");
         if (event.analysis) {
           setAnalysis(event.analysis);
         }
         setCallState(event.state);
       } else if (event.type === "copilot.error") {
-        setAnalysis({
-          stage: defaultAnalysis.stage,
-          nextQuestions: [
-            {
-              priority: "high",
-              question: "OpenAI co-pilot analysis failed. Check the server logs and OpenAI model configuration.",
-              reason: event.error ?? "OpenAI returned an error."
-            }
-          ]
-        });
+        setCopilotError(event.error ?? "OpenAI co-pilot analysis failed.");
       }
     });
     return () => socket.close();
@@ -250,16 +243,7 @@ export function App() {
       if (!response.ok) throw new Error(payload.error ?? "Could not join room.");
       setToken(payload.token);
     } catch (error) {
-      setAnalysis({
-        stage: defaultAnalysis.stage,
-        nextQuestions: [
-          {
-            priority: "low",
-            question: "LiveKit could not create a room token. Check the server logs, then try joining again.",
-            reason: error instanceof Error ? error.message : "Could not join the LiveKit room."
-          }
-        ]
-      });
+      setCopilotError(error instanceof Error ? error.message : "Could not join the LiveKit room.");
     } finally {
       setIsJoining(false);
     }
@@ -469,8 +453,18 @@ export function App() {
             <h3>{analysis.stage}</h3>
           </section>
 
-          <section className={`suggestion-card ${analysis.nextQuestions[0]?.priority ?? "quiet"}`}>
-            {analysis.nextQuestions.length ? (
+          {copilotError ? (
+            <section className="copilot-error-card">
+              <div className="priority">
+                <CircleAlert size={16} />
+                OpenAI error
+              </div>
+              <h3>Co-pilot analysis failed</h3>
+              <p>{copilotError}</p>
+            </section>
+          ) : (
+            <section className={`suggestion-card ${analysis.nextQuestions[0]?.priority ?? "quiet"}`}>
+              {analysis.nextQuestions.length ? (
               <>
                 <div className="priority">
                   <CircleAlert size={16} />
@@ -492,7 +486,7 @@ export function App() {
                   </button>
                 </div>
               </>
-            ) : (
+              ) : (
               <>
                 <div className="priority">
                   <Check size={16} />
@@ -501,8 +495,9 @@ export function App() {
                 <h3>No recommendation yet</h3>
                 <p>The co-pilot is waiting for enough transcript context to recommend the next move.</p>
               </>
-            )}
-          </section>
+              )}
+            </section>
+          )}
 
           <section className="state-panel">
             <h3>Call State</h3>

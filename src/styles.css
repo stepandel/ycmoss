@@ -403,6 +403,7 @@ input:focus {
 }
 
 .stage-panel,
+.copilot-error-card,
 .suggestion-card {
   display: grid;
   gap: 12px;
@@ -410,6 +411,16 @@ input:focus {
   border: 1px solid #c7d0c8;
   border-radius: 8px;
   background: #f6f8f5;
+}
+
+.copilot-error-card {
+  border-color: #d17b55;
+  background: #fff5ee;
+}
+
+.copilot-error-card h3 {
+  font-size: 21px;
+  line-height: 1.24;
 }
 
 .suggestion-card.high {
