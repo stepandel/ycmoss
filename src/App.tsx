@@ -493,7 +493,7 @@ export function App() {
         }
         setCallState(event.state);
       } else if (event.type === "copilot.error") {
-        setCopilotError(event.error ?? "MiniMax co-pilot analysis failed.");
+        setCopilotError(event.error ?? "OpenAI co-pilot analysis failed.");
       }
     });
     return () => socket.close();
@@ -502,7 +502,7 @@ export function App() {
   useEffect(() => {
     const socket = wsRef.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({ type: "call.subscribe", callId, prospectName: prospect.name }));
+    socket.send(JSON.stringify({ type: "call.subscribe", callId }));
   }, [callId, connectionState]);
 
   useEffect(() => {
@@ -577,6 +577,8 @@ export function App() {
   const activeRevealedStage = revealedStage ?? analysis.stage;
   const visiblePrompts = (transcript.length ? analysis.nextQuestions : stagePromptPlaceholders[activeRevealedStage]).slice(0, 2);
   const fluffGuard = pitchDrift.fluffGuard;
+  const shouldWarnOnFluff =
+    !copilotError && fluffGuard.state === "collecting_fluff" && fluffGuard.confidence >= 0.55;
   // Meet-style live captions: surface the latest transcript turn while it is fresh.
   // The elapsed-seconds ticker re-renders every second, which ages captions out.
   const latestTurn = transcript.length ? transcript[transcript.length - 1] : null;
@@ -611,6 +613,16 @@ export function App() {
               <span className="pip" />
               room
             </span>
+            {shouldWarnOnFluff ? (
+              <span
+                className={`status-pill fluff-warning ${fluffGuard.state}`}
+                title={`${fluffGuard.signal} Try: ${fluffGuard.suggestedProbe}`}
+              >
+                <CircleAlert size={13} />
+                fluff guard
+                <strong>{Math.round(fluffGuard.confidence * 100)}%</strong>
+              </span>
+            ) : null}
             <span className={`status-pill zoom-${zoomContext.status}`}>
               <Video size={13} />
               {zoomContext.status === "ready" ? zoomContext.runningContext : `zoom ${zoomContext.status}`}
@@ -823,31 +835,6 @@ export function App() {
                 <p>{pitchDrift.recoveryQuestion}</p>
               </article>
               {pitchDrift.reasons.length ? <p>{pitchDrift.reasons[0]}</p> : null}
-            </section>
-          ) : null}
-
-          {!copilotError ? (
-            <section className={`fluff-guard ${fluffGuard.state}`}>
-              <div className="fluff-guard-head">
-                <span className="card-kicker">fluff guard</span>
-                <span className="fluff-guard-meter">
-                  <span />
-                  {Math.round(fluffGuard.confidence * 100)}%
-                </span>
-              </div>
-              <h3>{fluffGuard.label}</h3>
-              <p>{fluffGuard.signal}</p>
-              {fluffGuard.evidence.length ? (
-                <ul>
-                  {fluffGuard.evidence.map((item, index) => (
-                    <li key={`${item}-${index}`}>{item}</li>
-                  ))}
-                </ul>
-              ) : null}
-              <article className="recovery-card compact">
-                <span>Convert to fact</span>
-                <p>{fluffGuard.suggestedProbe}</p>
-              </article>
             </section>
           ) : null}
 

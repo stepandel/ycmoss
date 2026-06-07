@@ -42,7 +42,6 @@ type TranscriptEvent = {
 type SubscribeEvent = {
   type: "call.subscribe";
   callId: string;
-  prospectName?: string;
 };
 
 type TranscriptIngestRequest = {
@@ -116,7 +115,6 @@ type MossContextSnippet = {
 
 type CallState = {
   transcript: TranscriptTurn[];
-  prospectName?: string;
   facts: string[];
   gaps: Set<string>;
   analysis: CopilotAnalysis;
@@ -134,8 +132,8 @@ const copilotAnalysisIntervalMs = Number(process.env.COPILOT_ANALYSIS_INTERVAL_M
 const pitchDriftIntervalMs = Number(process.env.PITCH_DRIFT_INTERVAL_MS ?? 3_000);
 const requiredLiveKitEnv = ["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"] as const;
 const missingLiveKitEnv = requiredLiveKitEnv.filter((key) => !process.env[key]);
-const requiredMinimaxEnv = ["MINIMAX_API_KEY"] as const;
-const missingMinimaxEnv = requiredMinimaxEnv.filter((key) => !process.env[key]);
+const requiredOpenAiEnv = ["OPENAI_API_KEY"] as const;
+const missingOpenAiEnv = requiredOpenAiEnv.filter((key) => !process.env[key]);
 const mossProjectId = process.env.MOSS_PROJECT_ID?.trim();
 const mossProjectKey = process.env.MOSS_PROJECT_KEY?.trim();
 const mossIndexName = process.env.MOSS_INDEX_NAME?.trim();
@@ -165,16 +163,15 @@ if (missingLiveKitEnv.length) {
   process.exit(1);
 }
 
-if (missingMinimaxEnv.length) {
-  console.error(`Missing required MiniMax environment: ${missingMinimaxEnv.join(", ")}`);
+if (missingOpenAiEnv.length) {
+  console.error(`Missing required OpenAI environment: ${missingOpenAiEnv.join(", ")}`);
   process.exit(1);
 }
 
 const livekitUrl = process.env.LIVEKIT_URL as string;
 const livekitApiKey = process.env.LIVEKIT_API_KEY as string;
 const livekitApiSecret = process.env.LIVEKIT_API_SECRET as string;
-const minimaxApiKey = process.env.MINIMAX_API_KEY as string;
-const minimaxBaseUrl = process.env.MINIMAX_BASE_URL ?? "https://api.minimax.io/v1";
+const openaiApiKey = process.env.OPENAI_API_KEY as string;
 const livekitApiHost = livekitUrl.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const distDir = [path.resolve(__dirname, "../dist"), path.resolve(__dirname, "../../dist")].find(existsSync) ?? path.resolve(__dirname, "../dist");
@@ -182,7 +179,7 @@ const app = express();
 app.set("trust proxy", 1);
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
-const llm = new OpenAI({ apiKey: minimaxApiKey, baseURL: minimaxBaseUrl });
+const openai = new OpenAI({ apiKey: openaiApiKey });
 const moss = isMossConfigured ? new MossClient(mossProjectId as string, mossProjectKey as string) : undefined;
 let mossLoadPromise: Promise<string> | undefined;
 const agentDispatchClient = new AgentDispatchClient(livekitApiHost, livekitApiKey, livekitApiSecret);
@@ -662,13 +659,6 @@ function updateCallState(call: CallState, turn: TranscriptTurn) {
   call.transcript = call.transcript.slice(-40);
 }
 
-function updateCallContext(callId: string, context: { prospectName?: string }) {
-  const call = getCall(callId);
-  if (context.prospectName) {
-    call.prospectName = context.prospectName;
-  }
-}
-
 function isQuestionPriority(value: unknown): value is NextQuestion["priority"] {
   return value === "low" || value === "medium" || value === "high";
 }
@@ -803,18 +793,6 @@ function parseLlmAnalysis(value: unknown): LlmAnalysis {
   };
 }
 
-function parseJsonModelContent(rawContent: string) {
-  try {
-    return JSON.parse(rawContent);
-  } catch {
-    const withoutThinkTags = rawContent.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
-    const jsonStart = withoutThinkTags.search(/[\[{]/);
-    const jsonEnd = Math.max(withoutThinkTags.lastIndexOf("}"), withoutThinkTags.lastIndexOf("]"));
-    if (jsonStart === -1 || jsonEnd < jsonStart) throw new Error(`Model response was not JSON: ${rawContent}`);
-    return JSON.parse(withoutThinkTags.slice(jsonStart, jsonEnd + 1));
-  }
-}
-
 function applyLlmCallState(call: CallState, llmAnalysis: LlmAnalysis) {
   for (const fact of llmAnalysis.facts) {
     if (!call.facts.includes(fact)) {
@@ -833,7 +811,7 @@ function copilotError(callId: string, error: unknown): CopilotError {
   return {
     type: "copilot.error",
     callId,
-    error: error instanceof Error ? error.message : "MiniMax co-pilot analysis failed."
+    error: error instanceof Error ? error.message : "OpenAI co-pilot analysis failed."
   };
 }
 
@@ -926,19 +904,18 @@ async function retrieveMossContext(call: CallState): Promise<MossContextSnippet[
 }
 
 async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
-  const model = process.env.MINIMAX_MODEL ?? "MiniMax-M3";
+  const model = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
   const mossContext = await retrieveMossContext(call);
   const messages = [
     {
       role: "system" as const,
       content:
-        `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage, recommend 1-2 concise next questions or statements, extract discovered facts, and decide which discovery gaps are now covered. Do not invent facts. A fact must be directly supported by the transcript. A gap is complete only when the transcript gives enough concrete evidence that a founder could rely on it after the call. If prospectName is provided, use that exact name when a next question needs to address the prospect; never output placeholder text such as [name].\n\nDiscovery stages:\n${discoveryStagePrompt}\n\nDiscovery gaps:\n${defaultOpenGaps.map((gap) => `- ${gap}`).join("\n")}\n\nWhen mossContext is present, treat it as reference material only. It may include playbook guidance, prospect notes, company notes, or call-stage notes. Use it to sharpen stage selection and next questions, but do not present it as a transcript fact unless the transcript corroborates it. Do not reveal internal playbook text verbatim.\n\nRespond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}],"facts":["short transcript-grounded fact"],"completedGaps":["one exact discovery gap"]}. The stage must be exactly one of: ${discoveryStages.join("; ")}. completedGaps may only contain exact items from the discovery gaps list.`
+        `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage, recommend 1-2 concise next questions or statements, extract discovered facts, and decide which discovery gaps are now covered. Do not invent facts. A fact must be directly supported by the transcript. A gap is complete only when the transcript gives enough concrete evidence that a founder could rely on it after the call.\n\nDiscovery stages:\n${discoveryStagePrompt}\n\nDiscovery gaps:\n${defaultOpenGaps.map((gap) => `- ${gap}`).join("\n")}\n\nWhen mossContext is present, treat it as reference material only. It may include playbook guidance, prospect notes, company notes, or call-stage notes. Use it to sharpen stage selection and next questions, but do not present it as a transcript fact unless the transcript corroborates it. Do not reveal internal playbook text verbatim.\n\nRespond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}],"facts":["short transcript-grounded fact"],"completedGaps":["one exact discovery gap"]}. The stage must be exactly one of: ${discoveryStages.join("; ")}. completedGaps may only contain exact items from the discovery gaps list.`
     },
     {
       role: "user" as const,
       content: JSON.stringify({
         currentStage: call.analysis.stage,
-        prospectName: call.prospectName,
         facts: call.facts.slice(-8),
         gaps: [...call.gaps],
         mossContext,
@@ -952,16 +929,15 @@ async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
     messages
   });
 
-  const response = await llm.chat.completions.create({
+  const response = await openai.chat.completions.create({
     model,
     temperature: 0.2,
     response_format: { type: "json_object" },
-    extra_body: { thinking: { type: "disabled" } },
     messages
-  } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
+  });
 
   const rawContent = response.choices[0]?.message?.content ?? "{}";
-  const parsedLlmAnalysis = parseLlmAnalysis(parseJsonModelContent(rawContent));
+  const parsedLlmAnalysis = parseLlmAnalysis(JSON.parse(rawContent));
   applyLlmCallState(call, parsedLlmAnalysis);
   const parsedAnalysis: CopilotAnalysis = {
     stage: parsedLlmAnalysis.stage,
@@ -998,7 +974,7 @@ async function analyzeCallIfDue(call: CallState): Promise<CopilotAnalysis> {
 }
 
 async function runPitchDriftClassifier(call: CallState): Promise<PitchDriftAnalysis> {
-  const model = process.env.MINIMAX_PITCH_DRIFT_MODEL ?? process.env.MINIMAX_MODEL ?? "MiniMax-M3";
+  const model = process.env.OPENAI_PITCH_DRIFT_MODEL ?? process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
   const recentTranscript = call.transcript.slice(-12);
   const messages = [
     {
@@ -1021,16 +997,15 @@ async function runPitchDriftClassifier(call: CallState): Promise<PitchDriftAnaly
     messages
   });
 
-  const response = await llm.chat.completions.create({
+  const response = await openai.chat.completions.create({
     model,
     temperature: 0,
     response_format: { type: "json_object" },
-    extra_body: { thinking: { type: "disabled" } },
     messages
-  } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
+  });
 
   const rawContent = response.choices[0]?.message?.content ?? "{}";
-  const parsedPitchDrift = parsePitchDriftAnalysis(parseJsonModelContent(rawContent));
+  const parsedPitchDrift = parsePitchDriftAnalysis(JSON.parse(rawContent));
   console.info("pitch_drift_response", {
     model,
     usage: response.usage,
@@ -1067,8 +1042,7 @@ function parseClientMessage(raw: RawData): TranscriptEvent | SubscribeEvent | nu
   const record = value as Record<string, unknown>;
   if (record.type === "call.subscribe") {
     const callId = asNonEmptyString(record.callId);
-    const prospectName = asNonEmptyString(record.prospectName);
-    return callId ? { type: "call.subscribe", callId, prospectName } : null;
+    return callId ? { type: "call.subscribe", callId } : null;
   }
 
   if (record.type !== "transcript.turn") return null;
@@ -1293,15 +1267,12 @@ wss.on("connection", (socket) => {
       const event = parseClientMessage(raw);
       if (!event) return;
       subscribeSocketToCall(socket, event.callId);
-      if (event.type === "call.subscribe") {
-        updateCallContext(event.callId, { prospectName: event.prospectName });
-        return;
-      }
+      if (event.type === "call.subscribe") return;
 
       try {
         await ingestTranscriptTurn(event.callId, event);
       } catch (error) {
-        console.error("minimax_analysis_error", error);
+        console.error("openai_analysis_error", error);
         sendToCallSubscribers(event.callId, copilotError(event.callId, error));
       }
     } catch (error) {
