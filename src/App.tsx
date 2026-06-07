@@ -603,10 +603,7 @@ export function App() {
         <aside className="copilot-panel glass reveal d2">
           <header className="copilot-head">
             <span className="copilot-glyph">❖</span>
-            <div>
-              <h2>Co-pilot</h2>
-              <p>listening to the room</p>
-            </div>
+            <h2>Co-pilot</h2>
           </header>
 
           <section className="stage-rail">
