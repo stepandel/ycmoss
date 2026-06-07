@@ -8,6 +8,7 @@
     "dev:api": "node server/index.mjs",
     "dev:web": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
+    "start": "node server/index.mjs",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {

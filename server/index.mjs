@@ -1,11 +1,16 @@
 import "dotenv/config";
 import express from "express";
 import http from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import OpenAI from "openai";
 import { AccessToken } from "livekit-server-sdk";
 
 const port = Number(process.env.PORT ?? 8787);
+const host = process.env.HOST ?? "0.0.0.0";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const distDir = path.resolve(__dirname, "../dist");
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
@@ -48,6 +53,11 @@ app.post("/api/livekit/token", async (req, res) => {
     console.error("token_error", error);
     res.status(500).json({ error: "Could not create LiveKit token." });
   }
+});
+
+app.use(express.static(distDir));
+app.get(["/", "/founder", "/prospect"], (_req, res) => {
+  res.sendFile(path.join(distDir, "index.html"));
 });
 
 const calls = new Map();
@@ -202,6 +212,6 @@ wss.on("connection", (socket) => {
   });
 });
 
-server.listen(port, () => {
-  console.log(`Discovery co-pilot API listening on http://127.0.0.1:${port}`);
+server.listen(port, host, () => {
+  console.log(`Discovery co-pilot listening on http://${host}:${port}`);
 });
