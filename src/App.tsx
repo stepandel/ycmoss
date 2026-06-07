@@ -14,7 +14,6 @@ import {
   BadgeCheck,
   Check,
   CircleAlert,
-  Copy,
   Mic,
   MicOff,
   Phone,
@@ -339,7 +338,6 @@ export function App() {
   });
   const [connectionState, setConnectionState] = useState("connecting");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [copiedLink, setCopiedLink] = useState<RouteMode | null>(null);
   const [revealedStage, setRevealedStage] = useState<DiscoveryStage | null>(null);
   const callId = roomName;
   const wsRef = useRef<WebSocket | null>(null);
@@ -457,20 +455,12 @@ export function App() {
 
   const isFounder = routeMode === "founder";
   const isLiveKitReady = Boolean(config?.livekitUrl && token);
-  const founderLink = `${window.location.origin}/founder?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent("founder")}`;
-  const prospectLink = `${window.location.origin}/prospect?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent("prospect")}`;
   const currentStageIndex = Math.max(
     0,
     discoveryArc.findIndex((entry) => entry.stage === analysis.stage)
   );
   const activeRevealedStage = revealedStage ?? analysis.stage;
   const visiblePrompts = (transcript.length ? analysis.nextQuestions : stagePromptPlaceholders[activeRevealedStage]).slice(0, 2);
-
-  async function copyLink(link: string, which: RouteMode) {
-    await navigator.clipboard.writeText(link);
-    setCopiedLink(which);
-    window.setTimeout(() => setCopiedLink((current) => (current === which ? null : current)), 1600);
-  }
 
   return (
     <main className={`shell ${routeMode}`}>
@@ -555,33 +545,8 @@ export function App() {
           </button>
         </section>
 
-        <section className="invite-strip reveal d3">
-          <div className="glass">
-            <span>Founder</span>
-            <code>{founderLink}</code>
-            <button
-              className="icon-button"
-              onClick={() => copyLink(founderLink, "founder")}
-              aria-label="Copy founder link"
-            >
-              {copiedLink === "founder" ? <Check size={16} /> : <Copy size={16} />}
-            </button>
-          </div>
-          <div className="glass">
-            <span>Prospect</span>
-            <code>{prospectLink}</code>
-            <button
-              className="icon-button"
-              onClick={() => copyLink(prospectLink, "prospect")}
-              aria-label="Copy prospect link"
-            >
-              {copiedLink === "prospect" ? <Check size={16} /> : <Copy size={16} />}
-            </button>
-          </div>
-        </section>
-
         {isFounder ? (
-          <section className="transcript-panel glass reveal d4">
+          <section className="transcript-panel glass reveal d3">
             <div className="section-title">
               <Mic size={16} />
               <h2>Transcript</h2>
