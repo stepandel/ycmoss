@@ -10,19 +10,7 @@ import {
   useTracks
 } from "@livekit/components-react";
 import { RoomEvent, Track, type Participant, type TrackPublication, type TranscriptionSegment } from "livekit-client";
-import {
-  BadgeCheck,
-  Check,
-  CircleAlert,
-  Mic,
-  MicOff,
-  Phone,
-  Play,
-  Send,
-  Sparkles,
-  UserRound,
-  Users,
-} from "lucide-react";
+import { Check, CircleAlert, Mic, MicOff, Phone, Sparkles, Users } from "lucide-react";
 
 type Speaker = "rep" | "prospect";
 
@@ -206,25 +194,6 @@ const stagePromptPlaceholders: Record<DiscoveryStage, NextQuestion[]> = {
   ]
 };
 
-const demoTurns: Array<Pick<TranscriptTurn, "speaker" | "text">> = [
-  {
-    speaker: "prospect",
-    text: "We are currently using Salesforce, but our reps hate updating it after calls."
-  },
-  {
-    speaker: "rep",
-    text: "That makes sense. What happens when those updates are missing?"
-  },
-  {
-    speaker: "prospect",
-    text: "Forecast meetings get messy and managers spend hours chasing notes manually."
-  },
-  {
-    speaker: "prospect",
-    text: "The VP of Sales wants this fixed before next quarter planning."
-  }
-];
-
 const defaultAnalysis: CopilotAnalysis = {
   stage: "Frame & Disarm",
   nextQuestions: stagePromptPlaceholders["Frame & Disarm"]
@@ -341,8 +310,6 @@ export function App() {
   const [roomName, setRoomName] = useState(initialRoomName);
   const [token, setToken] = useState("");
   const [isJoining, setIsJoining] = useState(false);
-  const [speaker, setSpeaker] = useState<Speaker>("prospect");
-  const [draft, setDraft] = useState("");
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
   const [analysis, setAnalysis] = useState<CopilotAnalysis>(defaultAnalysis);
   const [copilotError, setCopilotError] = useState("");
@@ -425,23 +392,6 @@ export function App() {
     }
   }
 
-  function sendTurn(text = draft, nextSpeaker = speaker) {
-    const cleanText = text.trim();
-    if (!cleanText || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-
-    const turn: TranscriptTurn = {
-      id: crypto.randomUUID(),
-      speaker: nextSpeaker,
-      text: cleanText,
-      timestamp: new Date().toISOString(),
-      final: true
-    };
-
-    setTranscript((current) => [...current, turn]);
-    wsRef.current.send(JSON.stringify({ type: "transcript.turn", callId, ...turn, final: true }));
-    setDraft("");
-  }
-
   const handleLiveTranscript = useMemo(
     () => (turn: TranscriptTurn) => {
       setTranscript((current) => {
@@ -461,12 +411,6 @@ export function App() {
     },
     [callId]
   );
-
-  function runDemo() {
-    demoTurns.forEach((turn, index) => {
-      window.setTimeout(() => sendTurn(turn.text, turn.speaker), index * 900);
-    });
-  }
 
   const isFounder = routeMode === "founder";
   const isLiveKitReady = Boolean(config?.livekitUrl && token);
@@ -559,10 +503,7 @@ export function App() {
             </div>
             <div className="transcript-list">
               {transcript.length === 0 ? (
-                <p className="muted empty-transcript">
-                  Live speech-to-text appears here during the room. You can still send a manual turn or run the
-                  demo.
-                </p>
+                <p className="muted empty-transcript">Live speech-to-text appears here during the room.</p>
               ) : (
                 transcript.map((turn) => (
                   <article key={turn.id} className={`turn ${turn.speaker}${turn.final ? "" : " interim"}`}>
@@ -574,33 +515,6 @@ export function App() {
                   </article>
                 ))
               )}
-            </div>
-            <div className="composer">
-              <div className="segmented" role="tablist" aria-label="Speaker">
-                <button className={speaker === "prospect" ? "active" : ""} onClick={() => setSpeaker("prospect")}>
-                  <UserRound size={15} />
-                  Prospect
-                </button>
-                <button className={speaker === "rep" ? "active" : ""} onClick={() => setSpeaker("rep")}>
-                  <BadgeCheck size={15} />
-                  Founder
-                </button>
-              </div>
-              <input
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") sendTurn();
-                }}
-                placeholder="Type a transcript turn…"
-              />
-              <button className="icon-button" onClick={() => sendTurn()} aria-label="Send transcript turn">
-                <Send size={17} />
-              </button>
-              <button className="ghost-button" onClick={runDemo}>
-                <Play size={15} />
-                Demo
-              </button>
             </div>
           </section>
         ) : null}

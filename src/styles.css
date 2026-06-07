@@ -426,8 +426,7 @@ input:focus {
 
 .primary-button,
 .ghost-button,
-.icon-button,
-.segmented button {
+.icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -580,41 +579,6 @@ input:focus {
 .turn p {
   font-size: 14px;
   line-height: 1.5;
-}
-
-.composer {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  gap: 10px;
-  align-items: center;
-  margin-top: 14px;
-}
-
-.segmented {
-  display: inline-grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 3px;
-  height: 42px;
-  padding: 3px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
-  background: var(--well);
-}
-
-.segmented button {
-  height: auto;
-  border: 0;
-  border-radius: 7px;
-  padding: 0 12px;
-  background: transparent;
-  color: var(--ink-faint);
-  font-size: 13.5px;
-}
-
-.segmented button.active {
-  background: #ffffff;
-  color: var(--ink);
-  box-shadow: 0 1px 3px rgba(46, 39, 27, 0.12);
 }
 
 /* ── co-pilot ────────────────────────────────────────────────── */
@@ -1020,8 +984,7 @@ input:focus {
     justify-content: flex-start;
   }
 
-  .join-strip,
-  .composer {
+  .join-strip {
     grid-template-columns: 1fr;
   }
 
@@ -1033,10 +996,6 @@ input:focus {
   .stage-mic-control {
     right: 10px;
     bottom: 72px;
-  }
-
-  .segmented {
-    width: 100%;
   }
 
   .turn {
