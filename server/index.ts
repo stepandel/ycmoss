@@ -36,13 +36,13 @@ type CopilotError = {
 };
 
 type DiscoveryStage =
-  | "Remove idea from the table"
-  | "Get them telling stories about the past"
-  | "Mine for specific instance for cost consequence"
-  | "Surface the behavioural residue"
-  | "Check for active search"
-  | "Introduce direction"
-  | "Close by pining a concrete next step";
+  | "Frame & Disarm"
+  | "Find a problem & get into a story"
+  | "Quantify the pain"
+  | "Find the behavioural residue"
+  | "Gauge intent / Active search"
+  | "Test commitment"
+  | "Close on the next step";
 
 type NextQuestion = {
   priority: "low" | "medium" | "high";
@@ -96,17 +96,49 @@ const wss = new WebSocketServer({ server, path: "/ws" });
 const openai = new OpenAI({ apiKey: openaiApiKey });
 const agentDispatchClient = new AgentDispatchClient(livekitApiHost, livekitApiKey, livekitApiSecret);
 const calls = new Map<string, CallState>();
-const discoveryStages = [
-  "Remove idea from the table",
-  "Get them telling stories about the past",
-  "Mine for specific instance for cost consequence",
-  "Surface the behavioural residue",
-  "Check for active search",
-  "Introduce direction",
-  "Close by pining a concrete next step"
-] as const satisfies readonly DiscoveryStage[];
+const discoveryStageGuide = [
+  {
+    stage: "Frame & Disarm",
+    goal: "Get your idea off the table.",
+    doneWhen: "They are talking freely about their own world, not reaching for a pitch."
+  },
+  {
+    stage: "Find a problem & get into a story",
+    goal: "Pin them to a specific, recent instance.",
+    doneWhen: "You are inside one concrete past event, not generalities."
+  },
+  {
+    stage: "Quantify the pain",
+    goal: "Establish cost, frequency, and downstream consequence of that instance.",
+    doneWhen: "You can state how much it hurts and how often."
+  },
+  {
+    stage: "Find the behavioural residue",
+    goal: "Uncover what they have already tried, built, or paid for.",
+    doneWhen: "You know whether real money or time has been spent."
+  },
+  {
+    stage: "Gauge intent / Active search",
+    goal: "Determine if they are solving this now or it is a someday item.",
+    doneWhen: "You know it is a find-budget problem, not a nice-to-have."
+  },
+  {
+    stage: "Test commitment",
+    goal: "Float your direction lightly and ask for something costly: time, an intro, or money.",
+    doneWhen: "They either advance or dodge."
+  },
+  {
+    stage: "Close on the next step",
+    goal: "Lock a concrete dated advancement, or explicitly name that there is not one.",
+    doneWhen: "The next step, or its confirmed absence, is unambiguous."
+  }
+] as const satisfies ReadonlyArray<{ stage: DiscoveryStage; goal: string; doneWhen: string }>;
+const discoveryStages = discoveryStageGuide.map((entry) => entry.stage);
+const discoveryStagePrompt = discoveryStageGuide
+  .map((entry, index) => `${index + 1}. ${entry.stage} — Goal: ${entry.goal} Done when: ${entry.doneWhen}`)
+  .join("\n");
 const defaultAnalysis: CopilotAnalysis = {
-  stage: "Get them telling stories about the past",
+  stage: "Find a problem & get into a story",
   nextQuestions: [
     {
       priority: "medium",
@@ -303,7 +335,7 @@ async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
       {
         role: "system",
         content:
-          `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage and recommend 1-3 concise next questions. Do not invent facts. Prefer questions that move the rep toward concrete past behavior, cost, consequence, active search, and a concrete next step. Respond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}]}. The stage must be exactly one of: ${discoveryStages.join("; ")}.`
+          `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage and recommend 1-3 concise next questions. Do not invent facts. Prefer questions that move the rep toward concrete past behavior, cost, consequence, active search, commitment, and a concrete next step.\n\nDiscovery stages:\n${discoveryStagePrompt}\n\nRespond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}]}. The stage must be exactly one of: ${discoveryStages.join("; ")}.`
       },
       {
         role: "user",

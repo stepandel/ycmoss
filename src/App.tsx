@@ -252,6 +252,7 @@ export function App() {
   const [connectionState, setConnectionState] = useState("connecting");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [copiedLink, setCopiedLink] = useState<RouteMode | null>(null);
+  const [revealedStage, setRevealedStage] = useState<DiscoveryStage | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const sentLiveTranscriptIdsRef = useRef<Set<string>>(new Set());
   const callId = roomName;
@@ -362,7 +363,7 @@ export function App() {
     0,
     discoveryArc.findIndex((entry) => entry.stage === analysis.stage)
   );
-  const currentStage = discoveryArc[currentStageIndex];
+  const activeRevealedStage = revealedStage ?? analysis.stage;
 
   async function copyLink(link: string, which: RouteMode) {
     await navigator.clipboard.writeText(link);
@@ -548,27 +549,41 @@ export function App() {
             <span className="rail-title">Discovery arc</span>
             <ol>
               {discoveryArc.map((entry, index) => {
-                const state =
+                const progressState =
                   index < currentStageIndex ? "done" : index === currentStageIndex ? "current" : "ahead";
+                const isCurrent = entry.stage === analysis.stage;
+                const isRevealed = entry.stage === activeRevealedStage;
                 return (
-                  <li key={entry.stage} className={state} title={entry.stage}>
-                    <span className="rail-step">{String(index + 1).padStart(2, "0")}</span>
-                    <span className="rail-copy">
-                      <span className="rail-label">{entry.label}</span>
-                      {state === "current" ? (
-                        <span className="rail-current-detail">
-                          <span>{entry.goal}</span>
-                          <span>{entry.doneWhen}</span>
+                  <li
+                    key={entry.stage}
+                    className={`${progressState}${isRevealed ? " revealed" : ""}`}
+                    title={`${entry.stage}\nGoal: ${entry.goal}\nDone when: ${entry.doneWhen}`}
+                  >
+                    <button
+                      type="button"
+                      className="rail-trigger"
+                      onClick={() => setRevealedStage(entry.stage)}
+                      aria-expanded={isRevealed}
+                      aria-current={isCurrent ? "step" : undefined}
+                    >
+                      <span className="rail-step">{String(index + 1).padStart(2, "0")}</span>
+                      <span className="rail-copy">
+                        <span className="rail-line">
+                          <span className="rail-label">{entry.label}</span>
+                          {isCurrent ? <span className="rail-current-chip">Current</span> : null}
                         </span>
-                      ) : null}
-                    </span>
+                        {isRevealed ? (
+                          <span className="rail-current-detail">
+                            <span>{entry.goal}</span>
+                            <span>{entry.doneWhen}</span>
+                          </span>
+                        ) : null}
+                      </span>
+                    </button>
                   </li>
                 );
               })}
             </ol>
-            <p className="rail-done">
-              <span>Done:</span> {currentStage.doneWhen}
-            </p>
           </section>
 
           {copilotError ? (
