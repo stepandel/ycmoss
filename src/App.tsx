@@ -55,6 +55,8 @@ type Config = {
   suggestionMode: "openai" | "local";
 };
 
+type RouteMode = "founder" | "prospect";
+
 const demoTurns: Array<Pick<TranscriptTurn, "speaker" | "text">> = [
   {
     speaker: "prospect",
@@ -74,6 +76,11 @@ const demoTurns: Array<Pick<TranscriptTurn, "speaker" | "text">> = [
   }
 ];
 
+function getRouteMode(): RouteMode {
+  if (window.location.pathname.startsWith("/prospect")) return "prospect";
+  return "founder";
+}
+
 function VideoGrid() {
   const tracks = useTracks(
     [
@@ -92,13 +99,13 @@ function VideoGrid() {
 
 export function App() {
   const initialParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const routeMode = useMemo(getRouteMode, []);
   const initialRoomName = initialParams.get("room") ?? "discovery-demo";
-  const initialRole = initialParams.get("role") === "prospect" ? "prospect" : "rep";
-  const initialIdentity = initialParams.get("identity") ?? `${initialRole}-${Math.floor(Math.random() * 9000) + 1000}`;
+  const initialIdentity =
+    initialParams.get("identity") ?? `${routeMode}-${Math.floor(Math.random() * 9000) + 1000}`;
   const [config, setConfig] = useState<Config | null>(null);
   const [identity, setIdentity] = useState(initialIdentity);
   const [roomName, setRoomName] = useState(initialRoomName);
-  const [role, setRole] = useState<Speaker>(initialRole);
   const [token, setToken] = useState("");
   const [isJoining, setIsJoining] = useState(false);
   const [speaker, setSpeaker] = useState<Speaker>("prospect");
@@ -184,40 +191,41 @@ export function App() {
     });
   }
 
-  function selectRole(nextRole: Speaker) {
-    setRole(nextRole);
-    setIdentity(nextRole);
-  }
-
+  const isFounder = routeMode === "founder";
   const isLiveKitReady = Boolean(config?.livekitUrl && token);
-  const shareBaseUrl = `${window.location.origin}${window.location.pathname}`;
-  const repLink = `${shareBaseUrl}?room=${encodeURIComponent(roomName)}&role=rep&identity=${encodeURIComponent("rep")}`;
-  const prospectLink = `${shareBaseUrl}?room=${encodeURIComponent(roomName)}&role=prospect&identity=${encodeURIComponent("prospect")}`;
+  const founderLink = `${window.location.origin}/founder?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent("founder")}`;
+  const prospectLink = `${window.location.origin}/prospect?room=${encodeURIComponent(roomName)}&identity=${encodeURIComponent("prospect")}`;
 
   async function copyLink(link: string) {
     await navigator.clipboard.writeText(link);
   }
 
   return (
-    <main className="shell">
+    <main className={`shell ${routeMode}`}>
       <section className="call-panel">
         <header className="topbar">
           <div>
-            <h1>Discovery Co-Pilot</h1>
-            <p>Live call, live transcript, restrained next-question suggestions.</p>
+            <h1>{isFounder ? "Founder Co-Pilot" : "Discovery Call"}</h1>
+            <p>
+              {isFounder
+                ? "Live call, live transcript, restrained next-question suggestions."
+                : "Join the same discovery room without the internal co-pilot workspace."}
+            </p>
           </div>
           <div className="status-row">
             <span className={`status-pill ${connectionState}`}>
               <CircleDot size={14} />
               {connectionState}
             </span>
-            <span className="status-pill">
-              <Sparkles size={14} />
-              {config?.suggestionMode ?? "local"} suggestions
-            </span>
+            {isFounder ? (
+              <span className="status-pill">
+                <Sparkles size={14} />
+                {config?.suggestionMode ?? "local"} suggestions
+              </span>
+            ) : null}
             <span className="status-pill">
               <Users size={14} />
-              two-person room
+              shared room
             </span>
           </div>
         </header>
@@ -256,16 +264,6 @@ export function App() {
             Identity
             <input value={identity} onChange={(event) => setIdentity(event.target.value)} />
           </label>
-          <div className="role-picker" aria-label="Join as">
-            <button className={role === "rep" ? "active" : ""} onClick={() => selectRole("rep")}>
-              <BadgeCheck size={16} />
-              Rep
-            </button>
-            <button className={role === "prospect" ? "active" : ""} onClick={() => selectRole("prospect")}>
-              <UserRound size={16} />
-              Prospect
-            </button>
-          </div>
           <button className="primary-button" onClick={joinRoom} disabled={isJoining}>
             <Phone size={17} />
             {token ? "Rejoin" : "Join"}
@@ -274,14 +272,14 @@ export function App() {
 
         <section className="invite-strip">
           <div>
-            <span>Rep link</span>
-            <code>{repLink}</code>
-            <button className="icon-button" onClick={() => copyLink(repLink)} aria-label="Copy rep link">
+            <span>Founder</span>
+            <code>{founderLink}</code>
+            <button className="icon-button" onClick={() => copyLink(founderLink)} aria-label="Copy founder link">
               <Copy size={17} />
             </button>
           </div>
           <div>
-            <span>Prospect link</span>
+            <span>Prospect</span>
             <code>{prospectLink}</code>
             <button className="icon-button" onClick={() => copyLink(prospectLink)} aria-label="Copy prospect link">
               <Copy size={17} />
@@ -289,117 +287,121 @@ export function App() {
           </div>
         </section>
 
-        <section className="transcript-panel">
-          <div className="section-title">
-            <Mic size={18} />
-            <h2>Transcript Stream</h2>
-          </div>
-          <div className="transcript-list">
-            {transcript.length === 0 ? (
-              <p className="muted">Send a transcript turn or run the demo to see the co-pilot react.</p>
-            ) : (
-              transcript.map((turn) => (
-                <article key={turn.id} className={`turn ${turn.speaker}`}>
-                  <span>{turn.speaker === "rep" ? "Rep" : "Prospect"}</span>
-                  <p>{turn.text}</p>
-                </article>
-              ))
-            )}
-          </div>
-          <div className="composer">
-            <div className="segmented" role="tablist" aria-label="Speaker">
-              <button className={speaker === "prospect" ? "active" : ""} onClick={() => setSpeaker("prospect")}>
-                <UserRound size={16} />
-                Prospect
+        {isFounder ? (
+          <section className="transcript-panel">
+            <div className="section-title">
+              <Mic size={18} />
+              <h2>Transcript Stream</h2>
+            </div>
+            <div className="transcript-list">
+              {transcript.length === 0 ? (
+                <p className="muted">Send a transcript turn or run the demo to see the co-pilot react.</p>
+              ) : (
+                transcript.map((turn) => (
+                  <article key={turn.id} className={`turn ${turn.speaker}`}>
+                    <span>{turn.speaker === "rep" ? "Founder" : "Prospect"}</span>
+                    <p>{turn.text}</p>
+                  </article>
+                ))
+              )}
+            </div>
+            <div className="composer">
+              <div className="segmented" role="tablist" aria-label="Speaker">
+                <button className={speaker === "prospect" ? "active" : ""} onClick={() => setSpeaker("prospect")}>
+                  <UserRound size={16} />
+                  Prospect
+                </button>
+                <button className={speaker === "rep" ? "active" : ""} onClick={() => setSpeaker("rep")}>
+                  <BadgeCheck size={16} />
+                  Founder
+                </button>
+              </div>
+              <input
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") sendTurn();
+                }}
+                placeholder="Type a transcript turn..."
+              />
+              <button className="icon-button" onClick={() => sendTurn()} aria-label="Send transcript turn">
+                <Send size={18} />
               </button>
-              <button className={speaker === "rep" ? "active" : ""} onClick={() => setSpeaker("rep")}>
-                <BadgeCheck size={16} />
-                Rep
+              <button className="ghost-button" onClick={runDemo}>
+                <Play size={16} />
+                Demo
               </button>
             </div>
-            <input
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") sendTurn();
-              }}
-              placeholder="Type a transcript turn..."
-            />
-            <button className="icon-button" onClick={() => sendTurn()} aria-label="Send transcript turn">
-              <Send size={18} />
-            </button>
-            <button className="ghost-button" onClick={runDemo}>
-              <Play size={16} />
-              Demo
-            </button>
-          </div>
-        </section>
+          </section>
+        ) : null}
       </section>
 
-      <aside className="copilot-panel">
-        <div className="section-title">
-          <Bot size={19} />
-          <h2>Co-Pilot</h2>
-        </div>
+      {isFounder ? (
+        <aside className="copilot-panel">
+          <div className="section-title">
+            <Bot size={19} />
+            <h2>Co-Pilot</h2>
+          </div>
 
-        <section className={`suggestion-card ${suggestion.type === "suggestion" ? suggestion.priority : "quiet"}`}>
-          {suggestion.type === "suggestion" ? (
-            <>
-              <div className="priority">
-                <CircleAlert size={16} />
-                {suggestion.priority} priority
-              </div>
-              <h3>{suggestion.question}</h3>
-              <p>{suggestion.reason}</p>
-              <div className="actions">
-                <button className="primary-button">
+          <section className={`suggestion-card ${suggestion.type === "suggestion" ? suggestion.priority : "quiet"}`}>
+            {suggestion.type === "suggestion" ? (
+              <>
+                <div className="priority">
+                  <CircleAlert size={16} />
+                  {suggestion.priority} priority
+                </div>
+                <h3>{suggestion.question}</h3>
+                <p>{suggestion.reason}</p>
+                <div className="actions">
+                  <button className="primary-button">
+                    <Check size={16} />
+                    Use
+                  </button>
+                  <button className="ghost-button" onClick={() => setSuggestion({ type: "none" })}>
+                    Dismiss
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="priority">
                   <Check size={16} />
-                  Use
-                </button>
-                <button className="ghost-button" onClick={() => setSuggestion({ type: "none" })}>
-                  Dismiss
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="priority">
-                <Check size={16} />
-                Listening
-              </div>
-              <h3>No suggestion right now</h3>
-              <p>The co-pilot is intentionally quiet until the transcript exposes a useful next question.</p>
-            </>
-          )}
-        </section>
+                  Listening
+                </div>
+                <h3>No suggestion right now</h3>
+                <p>The co-pilot is intentionally quiet until the transcript exposes a useful next question.</p>
+              </>
+            )}
+          </section>
 
-        <section className="state-panel">
-          <h3>Call State</h3>
-          <dl>
-            <div>
-              <dt>Stage</dt>
-              <dd>{callState.stage.replace("_", " ")}</dd>
-            </div>
-            <div>
-              <dt>Open gaps</dt>
-              <dd>{callState.gaps.length ? callState.gaps.join(", ") : "covered"}</dd>
-            </div>
-          </dl>
-        </section>
+          <section className="state-panel">
+            <h3>Call State</h3>
+            <dl>
+              <div>
+                <dt>Stage</dt>
+                <dd>{callState.stage.replace("_", " ")}</dd>
+              </div>
+              <div>
+                <dt>Open gaps</dt>
+                <dd>{callState.gaps.length ? callState.gaps.join(", ") : "covered"}</dd>
+              </div>
+            </dl>
+          </section>
 
-        <section className="facts-panel">
-          <h3>Captured Facts</h3>
-          {callState.facts.length ? (
-            <ul>
-              {callState.facts.map((fact, index) => (
-                <li key={`${fact}-${index}`}>{fact}</li>
-              ))}
-            </ul>
-          ) : (
-            <p className="muted">Facts appear here as the prospect describes their current workflow.</p>
-          )}
-        </section>
-      </aside>
+          <section className="facts-panel">
+            <h3>Captured Facts</h3>
+            {callState.facts.length ? (
+              <ul>
+                {callState.facts.map((fact, index) => (
+                  <li key={`${fact}-${index}`}>{fact}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="muted">Facts appear here as the prospect describes their current workflow.</p>
+            )}
+          </section>
+        </aside>
+      ) : null}
     </main>
   );
 }
