@@ -463,7 +463,7 @@ export function App() {
           <div className="brand">
             <span className="brand-mark">✦</span>
             <div>
-              <h1>{isFounder ? "Discovery Studio" : "Discovery Call"}</h1>
+              <h1>{isFounder ? "Sales Co-Pilot" : "Discovery Call"}</h1>
               <p>
                 {isFounder
                   ? "Live call, live transcript, restrained next-question suggestions."
