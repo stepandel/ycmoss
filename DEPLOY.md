@@ -32,6 +32,13 @@ Deploy:
 fly deploy
 ```
 
+The Docker image uses pnpm through Corepack. Local development uses the same package manager:
+
+```bash
+pnpm install
+pnpm dev
+```
+
 Open the two prototype paths:
 
 ```text

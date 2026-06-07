@@ -1,20 +1,22 @@
 FROM node:22-slim AS deps
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci
+RUN corepack enable
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 FROM deps AS builder
 WORKDIR /app
 COPY . .
-RUN npm run build
+RUN pnpm run build
 
 FROM node:22-slim AS runner
 ENV NODE_ENV=production
 ENV PORT=8080
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev && npm cache clean --force
+RUN corepack enable
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --prod --frozen-lockfile && pnpm store prune
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server ./server
 EXPOSE 8080
-CMD ["npm", "start"]
+CMD ["pnpm", "start"]
