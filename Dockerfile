@@ -17,7 +17,6 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --prod --frozen-lockfile && pnpm store prune
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/agents ./agents
-COPY --from=builder /app/server ./server
+COPY --from=builder /app/build ./build
 EXPOSE 8080
 CMD ["pnpm", "start"]

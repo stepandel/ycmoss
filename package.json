@@ -7,12 +7,12 @@
   "scripts": {
     "dev": "concurrently \"npm:dev:api\" \"npm:dev:web\" \"npm:dev:stt\"",
     "dev:all": "pnpm dev",
-    "dev:api": "node server/index.mjs",
-    "dev:stt": "node agents/transcriber.mjs dev",
+    "dev:api": "tsx server/index.ts",
+    "dev:stt": "tsx agents/transcriber.ts dev",
     "dev:web": "vite --host 127.0.0.1",
-    "build": "tsc && vite build",
-    "start": "node server/index.mjs",
-    "start:stt": "node agents/transcriber.mjs start",
+    "build": "tsc && tsc -p tsconfig.server.json && vite build",
+    "start": "node build/server/index.js",
+    "start:stt": "node build/agents/transcriber.js start",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
@@ -33,11 +33,13 @@
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
+    "@types/node": "^25.9.2",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",
+    "tsx": "^4.22.4",
     "typescript": "^5.7.2",
     "vite": "^6.0.7"
   }
