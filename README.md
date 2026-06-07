@@ -130,7 +130,7 @@ The server caches transcript turns per room and runs co-pilot analysis on a thro
 
 If Moss is configured, the analysis query includes the current stage, known facts, open gaps, and recent transcript. Retrieved Moss snippets are treated as reference material for playbook guidance, prospect notes, company notes, and call-stage context; transcript facts still take priority.
 
-The server also runs a separate LLM-based pitch-drift classifier after founder turns. It uses `OPENAI_PITCH_DRIFT_MODEL` and `PITCH_DRIFT_INTERVAL_MS` to detect when the founder is drifting into pitching or validation, then sends a gentle guardrail warning plus a recovery question to the founder UI.
+The server also runs a separate LLM-based discovery guardrail classifier after founder turns. It uses `OPENAI_PITCH_DRIFT_MODEL` and `PITCH_DRIFT_INTERVAL_MS` to detect pitch drift and classify whether the founder is collecting concrete facts or fluff like empty compliments, vague enthusiasm, and hypothetical willingness. The founder UI shows an always-on Fluff Guard status plus a gentle warning when the founder drifts into pitching or validation.
 
 ## Deploy
 
