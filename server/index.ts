@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { MossClient, type QueryResultDocumentInfo } from "@moss-dev/moss";
 import OpenAI from "openai";
 import { AccessToken, AgentDispatchClient, RoomAgentDispatch, RoomConfiguration } from "livekit-server-sdk";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
@@ -60,6 +61,13 @@ type CopilotAnalysis = {
   nextQuestions: NextQuestion[];
 };
 
+type MossContextSnippet = {
+  id: string;
+  text: string;
+  score: number;
+  metadata?: Record<string, string>;
+};
+
 type CallState = {
   transcript: TranscriptTurn[];
   facts: string[];
@@ -77,6 +85,16 @@ const requiredLiveKitEnv = ["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRE
 const missingLiveKitEnv = requiredLiveKitEnv.filter((key) => !process.env[key]);
 const requiredOpenAiEnv = ["OPENAI_API_KEY"] as const;
 const missingOpenAiEnv = requiredOpenAiEnv.filter((key) => !process.env[key]);
+const mossProjectId = process.env.MOSS_PROJECT_ID?.trim();
+const mossProjectKey = process.env.MOSS_PROJECT_KEY?.trim();
+const mossIndexName = process.env.MOSS_INDEX_NAME?.trim();
+const mossTopK = Number(process.env.MOSS_TOP_K ?? 5);
+const mossMinScore = Number(process.env.MOSS_MIN_SCORE ?? 0);
+const mossShouldLoadIndex = process.env.MOSS_LOAD_INDEX !== "false";
+const mossAutoRefresh = process.env.MOSS_AUTO_REFRESH === "true";
+const mossPollingIntervalInSeconds = Number(process.env.MOSS_POLLING_INTERVAL_SECONDS ?? 300);
+const mossCachePath = process.env.MOSS_CACHE_PATH?.trim();
+const isMossConfigured = Boolean(mossProjectId && mossProjectKey && mossIndexName);
 
 if (missingLiveKitEnv.length) {
   console.error(`Missing required LiveKit environment: ${missingLiveKitEnv.join(", ")}`);
@@ -99,6 +117,8 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: "/ws" });
 const openai = new OpenAI({ apiKey: openaiApiKey });
+const moss = isMossConfigured ? new MossClient(mossProjectId as string, mossProjectKey as string) : undefined;
+let mossLoadPromise: Promise<string> | undefined;
 const agentDispatchClient = new AgentDispatchClient(livekitApiHost, livekitApiKey, livekitApiSecret);
 const calls = new Map<string, CallState>();
 const callSubscribers = new Map<string, Set<WebSocket>>();
@@ -337,13 +357,92 @@ function copilotError(callId: string, error: unknown): CopilotError {
   };
 }
 
+function truncateForPrompt(text: string, maxLength: number) {
+  return text.length > maxLength ? `${text.slice(0, maxLength).trimEnd()}...` : text;
+}
+
+function buildMossQuery(call: CallState) {
+  const recentTranscript = call.transcript
+    .slice(-12)
+    .map((turn) => `${turn.speaker}: ${turn.text}`)
+    .join("\n");
+
+  return [
+    `Current discovery stage: ${call.analysis.stage}`,
+    call.facts.length ? `Known facts:\n${call.facts.slice(-8).join("\n")}` : undefined,
+    call.gaps.size ? `Open gaps: ${[...call.gaps].join(", ")}` : undefined,
+    `Recent transcript:\n${recentTranscript}`
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+async function loadMossIndexIfNeeded() {
+  if (!moss || !mossIndexName || !mossShouldLoadIndex) return;
+
+  mossLoadPromise ??= moss
+    .loadIndex(mossIndexName, {
+      autoRefresh: mossAutoRefresh,
+      pollingIntervalInSeconds: mossPollingIntervalInSeconds,
+      ...(mossCachePath ? { cachePath: mossCachePath } : {})
+    })
+    .catch((error) => {
+      mossLoadPromise = undefined;
+      throw error;
+    });
+
+  await mossLoadPromise;
+}
+
+function formatMossSnippets(docs: QueryResultDocumentInfo[]): MossContextSnippet[] {
+  return docs
+    .filter((doc) => doc.score >= mossMinScore)
+    .slice(0, Number.isFinite(mossTopK) && mossTopK > 0 ? mossTopK : 5)
+    .map((doc) => ({
+      id: doc.id,
+      score: doc.score,
+      metadata: doc.metadata,
+      text: truncateForPrompt(doc.text, 1_500)
+    }));
+}
+
+async function retrieveMossContext(call: CallState): Promise<MossContextSnippet[]> {
+  if (!moss || !mossIndexName || !call.transcript.length) return [];
+
+  try {
+    await loadMossIndexIfNeeded();
+    const query = buildMossQuery(call);
+    const results = await moss.query(mossIndexName, query, {
+      topK: Number.isFinite(mossTopK) && mossTopK > 0 ? mossTopK : 5
+    });
+
+    const snippets = formatMossSnippets(results.docs);
+    console.info("moss_context_retrieved", {
+      index: mossIndexName,
+      query: truncateForPrompt(query, 500),
+      count: snippets.length,
+      docs: snippets.map((snippet) => ({
+        id: snippet.id,
+        score: snippet.score,
+        metadata: snippet.metadata
+      }))
+    });
+
+    return snippets;
+  } catch (error) {
+    console.warn("moss_context_error", error instanceof Error ? error.message : error);
+    return [];
+  }
+}
+
 async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
   const model = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+  const mossContext = await retrieveMossContext(call);
   const messages = [
     {
       role: "system" as const,
       content:
-        `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage and recommend 1-2 concise next questions or statements. Do not invent facts. Prefer prompts that move the rep toward concrete past behavior, cost, consequence, active search, commitment, and a concrete next step.\n\nDiscovery stages:\n${discoveryStagePrompt}\n\nRespond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}]}. The stage must be exactly one of: ${discoveryStages.join("; ")}.`
+        `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage and recommend 1-2 concise next questions or statements. Do not invent facts. Prefer prompts that move the rep toward concrete past behavior, cost, consequence, active search, commitment, and a concrete next step.\n\nDiscovery stages:\n${discoveryStagePrompt}\n\nWhen mossContext is present, treat it as reference material only. It may include playbook guidance, prospect notes, company notes, or call-stage notes. Use it to sharpen stage selection and next questions, but do not present it as a transcript fact unless the transcript corroborates it. Do not reveal internal playbook text verbatim.\n\nRespond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}]}. The stage must be exactly one of: ${discoveryStages.join("; ")}.`
     },
     {
       role: "user" as const,
@@ -351,6 +450,7 @@ async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
         currentStage: call.analysis.stage,
         facts: call.facts.slice(-8),
         gaps: [...call.gaps],
+        mossContext,
         transcript: call.transcript.slice(-40)
       })
     }

@@ -45,6 +45,14 @@ fly secrets set LIVEKIT_API_SECRET="your-livekit-api-secret" -a ycmoss
 fly secrets set OPENAI_API_KEY="your-openai-api-key" -a ycmoss
 ```
 
+If Moss context retrieval should run in production, add the Moss secrets too:
+
+```bash
+fly secrets set MOSS_PROJECT_ID="your-moss-project-id" -a ycmoss
+fly secrets set MOSS_PROJECT_KEY="your-moss-project-key" -a ycmoss
+fly secrets set MOSS_INDEX_NAME="your-moss-index-name" -a ycmoss
+```
+
 The Docker image uses pnpm through Corepack. Local development uses the same package manager:
 
 ```bash

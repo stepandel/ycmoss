@@ -64,6 +64,21 @@ COPILOT_ANALYSIS_INTERVAL_MS=10000
 
 Without `OPENAI_API_KEY`, the server exits on startup.
 
+Optionally configure Moss context retrieval:
+
+```text
+MOSS_PROJECT_ID=your-moss-project-id
+MOSS_PROJECT_KEY=your-moss-project-key
+MOSS_INDEX_NAME=your-moss-index-name
+MOSS_TOP_K=5
+MOSS_MIN_SCORE=0
+MOSS_LOAD_INDEX=true
+MOSS_AUTO_REFRESH=false
+MOSS_POLLING_INTERVAL_SECONDS=300
+```
+
+When all three required Moss values are set, the server queries Moss before each co-pilot analysis and injects the returned snippets into the OpenAI prompt as `mossContext`. If Moss is unavailable, the co-pilot logs a warning and falls back to transcript-only analysis.
+
 Start the dev server:
 
 ```bash
@@ -108,6 +123,8 @@ The UI listens for LiveKit Agent transcriptions on the `lk.transcription` text s
 ## Co-Pilot Analysis
 
 The server caches transcript turns per room and runs co-pilot analysis on a throttle controlled by `COPILOT_ANALYSIS_INTERVAL_MS`. Each analysis returns the current discovery stage plus 1-3 recommended next questions for the rep.
+
+If Moss is configured, the analysis query includes the current stage, known facts, open gaps, and recent transcript. Retrieved Moss snippets are treated as reference material for playbook guidance, prospect notes, company notes, and call-stage context; transcript facts still take priority.
 
 ## Deploy
 

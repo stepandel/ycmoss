@@ -23,6 +23,9 @@ importers:
       '@livekit/rtc-node':
         specifier: ^0.13.29
         version: 0.13.29
+      '@moss-dev/moss':
+        specifier: ^1.1.0
+        version: 1.1.0
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
@@ -785,6 +788,43 @@ packages:
 
   '@livekit/typed-emitter@3.0.0':
     resolution: {integrity: sha512-9bl0k4MgBPZu3Qu3R3xy12rmbW17e3bE9yf4YY85gJIQ3ezLEj/uzpKHWBsLaDoL5Mozz8QCgggwIBudYQWeQg==}
+
+  '@moss-dev/moss-core-darwin-arm64@0.17.0':
+    resolution: {integrity: sha512-GkkHcz///h/i2qYdg4sMQMdOrbdSs49cZczKFqXOGvM8MToS2yCOzK0StK4X9/QnLyo4DhOHB+XLcNdVmEHhdA==}
+    engines: {node: '>=20'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@moss-dev/moss-core-darwin-x64@0.17.0':
+    resolution: {integrity: sha512-xF3iay9BQt6ZyRTnRBgriho4zem7bp/vTBRiEcsN6uoAvmmHg0YGofwHhpzqSIIqEZPAhze4FlyC2cjaxnQKZg==}
+    engines: {node: '>=20'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@moss-dev/moss-core-linux-arm64-gnu@0.17.0':
+    resolution: {integrity: sha512-FJ18yeCm08rS0G3jmvCVx26S+AEk0UZ2CGNiUW9pIOXhd7oshBDaUCXnsRCzfL+yxB5UoHQTYzUE1bXYFemp2A==}
+    engines: {node: '>=20'}
+    cpu: [arm64]
+    os: [linux]
+
+  '@moss-dev/moss-core-linux-x64-gnu@0.17.0':
+    resolution: {integrity: sha512-/ueQ/76V/Suteb4oUr6LsKRwtD21aGwkrGjCDdF/atyBlwsJGAoR553bBx9O5QeRn+FNshZCuuwsas0N7WXXJA==}
+    engines: {node: '>=20'}
+    cpu: [x64]
+    os: [linux]
+
+  '@moss-dev/moss-core-win32-x64-msvc@0.17.0':
+    resolution: {integrity: sha512-7ILWACI5aUNBZi1n7lK2ORF5TFnkTcDT6unldWmJHEQBZNZF309Y9GszJzulj0P0PMot2SGd01G7hRPCmYhdMA==}
+    engines: {node: '>=20'}
+    cpu: [x64]
+    os: [win32]
+
+  '@moss-dev/moss-core@0.17.0':
+    resolution: {integrity: sha512-LLDhTFK/IhDbc0iRmM5IIZBBEHLdB8vrtKRuBbS6AAL6vX9Y0AbK3doUiEtGRVIr/krugSKIr1CO1XdtVZ0guQ==}
+    engines: {node: '>=20'}
+
+  '@moss-dev/moss@1.1.0':
+    resolution: {integrity: sha512-Q9KnJth6A7OZolTweRa0D/pUdvADu/79AIJXmyRyAmZRA4ch9kIUD0U1EAte4LDHjL8+XojW4Gr83SbvDeDLxg==}
 
   '@opentelemetry/api-logs@0.208.0':
     resolution: {integrity: sha512-CjruKY9V6NMssL/T1kAFgzosF1v9o6oeN+aX5JB/C/xPNtmgIJqcXHG7fA82Ou1zCpWGl4lROQUKwUNE1pMCyg==}
@@ -2885,6 +2925,33 @@ snapshots:
       typescript: 5.9.3
 
   '@livekit/typed-emitter@3.0.0': {}
+
+  '@moss-dev/moss-core-darwin-arm64@0.17.0':
+    optional: true
+
+  '@moss-dev/moss-core-darwin-x64@0.17.0':
+    optional: true
+
+  '@moss-dev/moss-core-linux-arm64-gnu@0.17.0':
+    optional: true
+
+  '@moss-dev/moss-core-linux-x64-gnu@0.17.0':
+    optional: true
+
+  '@moss-dev/moss-core-win32-x64-msvc@0.17.0':
+    optional: true
+
+  '@moss-dev/moss-core@0.17.0':
+    optionalDependencies:
+      '@moss-dev/moss-core-darwin-arm64': 0.17.0
+      '@moss-dev/moss-core-darwin-x64': 0.17.0
+      '@moss-dev/moss-core-linux-arm64-gnu': 0.17.0
+      '@moss-dev/moss-core-linux-x64-gnu': 0.17.0
+      '@moss-dev/moss-core-win32-x64-msvc': 0.17.0
+
+  '@moss-dev/moss@1.1.0':
+    dependencies:
+      '@moss-dev/moss-core': 0.17.0
 
   '@opentelemetry/api-logs@0.208.0':
     dependencies:
