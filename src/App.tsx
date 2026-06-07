@@ -404,7 +404,7 @@ export function App() {
         }
         setCallState(event.state);
       } else if (event.type === "copilot.error") {
-        setCopilotError(event.error ?? "OpenAI co-pilot analysis failed.");
+        setCopilotError(event.error ?? "MiniMax co-pilot analysis failed.");
       }
     });
     return () => socket.close();

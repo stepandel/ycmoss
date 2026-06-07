@@ -46,7 +46,7 @@ onMyUserContextChange
 
 ## Environment
 
-Add these values in addition to the existing LiveKit and OpenAI values:
+Add these values in addition to the existing LiveKit and MiniMax values:
 
 ```text
 ZOOM_CLIENT_ID=your-zoom-client-id
