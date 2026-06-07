@@ -361,7 +361,14 @@ function truncateForPrompt(text: string, maxLength: number) {
   return text.length > maxLength ? `${text.slice(0, maxLength).trimEnd()}...` : text;
 }
 
+function getNextDiscoveryStage(currentStage: DiscoveryStage) {
+  const currentIndex = discoveryStageGuide.findIndex((entry) => entry.stage === currentStage);
+  const nextIndex = currentIndex === -1 ? 0 : Math.min(currentIndex + 1, discoveryStageGuide.length - 1);
+  return discoveryStageGuide[nextIndex];
+}
+
 function buildMossQuery(call: CallState) {
+  const nextStage = getNextDiscoveryStage(call.analysis.stage);
   const recentTranscript = call.transcript
     .slice(-12)
     .map((turn) => `${turn.speaker}: ${turn.text}`)
@@ -369,6 +376,9 @@ function buildMossQuery(call: CallState) {
 
   return [
     `Current discovery stage: ${call.analysis.stage}`,
+    `Next likely discovery stage: ${nextStage.stage}`,
+    `Next stage goal: ${nextStage.goal}`,
+    `Next stage done when: ${nextStage.doneWhen}`,
     call.facts.length ? `Known facts:\n${call.facts.slice(-8).join("\n")}` : undefined,
     call.gaps.size ? `Open gaps: ${[...call.gaps].join(", ")}` : undefined,
     `Recent transcript:\n${recentTranscript}`
