@@ -502,7 +502,7 @@ export function App() {
   useEffect(() => {
     const socket = wsRef.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({ type: "call.subscribe", callId }));
+    socket.send(JSON.stringify({ type: "call.subscribe", callId, prospectName: prospect.name }));
   }, [callId, connectionState]);
 
   useEffect(() => {
