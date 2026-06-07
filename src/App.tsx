@@ -53,6 +53,7 @@ type Config = {
 };
 
 type RouteMode = "founder" | "prospect";
+type LiveKitConnectionState = "idle" | "connecting" | "connected" | "disconnected" | "error";
 
 // TODO: pull from room metadata / CRM once available
 const prospect = {
@@ -319,6 +320,7 @@ export function App() {
     gaps: defaultOpenGaps
   });
   const [connectionState, setConnectionState] = useState("connecting");
+  const [liveKitConnectionState, setLiveKitConnectionState] = useState<LiveKitConnectionState>("idle");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [revealedStage, setRevealedStage] = useState<DiscoveryStage | null>(null);
   const callId = roomName;
@@ -368,14 +370,21 @@ export function App() {
   }, [callId, connectionState]);
 
   useEffect(() => {
-    if (!token) return;
-    setElapsedSeconds(0);
+    if (!token) {
+      setLiveKitConnectionState("idle");
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (liveKitConnectionState !== "connected") return;
     const interval = window.setInterval(() => setElapsedSeconds((seconds) => seconds + 1), 1000);
     return () => window.clearInterval(interval);
-  }, [token]);
+  }, [liveKitConnectionState]);
 
   async function joinRoom() {
     setIsJoining(true);
+    setCopilotError("");
+    setLiveKitConnectionState("connecting");
     try {
       const response = await fetch("/api/livekit/token", {
         method: "POST",
@@ -386,6 +395,7 @@ export function App() {
       if (!response.ok) throw new Error(payload.error ?? "Could not join room.");
       setToken(payload.token);
     } catch (error) {
+      setLiveKitConnectionState("error");
       setCopilotError(error instanceof Error ? error.message : "Could not join the LiveKit room.");
     } finally {
       setIsJoining(false);
@@ -414,6 +424,7 @@ export function App() {
 
   const isFounder = routeMode === "founder";
   const isLiveKitReady = Boolean(config?.livekitUrl && token);
+  const isLiveKitConnected = liveKitConnectionState === "connected";
   const currentStageIndex = Math.max(
     0,
     discoveryArc.findIndex((entry) => entry.stage === analysis.stage)
@@ -438,9 +449,13 @@ export function App() {
           <div className="status-row">
             <span className={`status-pill ${connectionState}`}>
               <span className="pip" />
-              {connectionState}
+              co-pilot {connectionState}
             </span>
-            {token ? (
+            <span className={`status-pill ${liveKitConnectionState}`}>
+              <span className="pip" />
+              room {liveKitConnectionState}
+            </span>
+            {isLiveKitConnected ? (
               <span className="status-pill onair">
                 <span className="pip live" />
                 on air · {formatElapsed(elapsedSeconds)}
@@ -462,6 +477,19 @@ export function App() {
               video
               audio
               className="livekit-room"
+              onConnected={() => {
+                setElapsedSeconds(0);
+                setLiveKitConnectionState("connected");
+                setCopilotError("");
+              }}
+              onDisconnected={() => setLiveKitConnectionState("disconnected")}
+              onError={(error) => {
+                setLiveKitConnectionState("error");
+                setCopilotError(error.message || "Could not connect to the LiveKit room.");
+              }}
+              onMediaDeviceFailure={(_failure, kind) => {
+                setCopilotError(`${kind ?? "Media"} permission or device setup failed.`);
+              }}
             >
               <LiveTranscriptionBridge onTranscript={handleLiveTranscript} />
               <VideoGrid />

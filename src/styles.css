@@ -240,7 +240,15 @@ p {
   background: var(--ochre);
 }
 
+.status-pill.idle .pip {
+  background: var(--ink-faint);
+}
+
 .status-pill.disconnected .pip {
+  background: var(--clay);
+}
+
+.status-pill.error .pip {
   background: var(--clay);
 }
 
