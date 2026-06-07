@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import OpenAI from "openai";
 import { AccessToken, AgentDispatchClient, RoomAgentDispatch, RoomConfiguration } from "livekit-server-sdk";
-import { WebSocketServer, type RawData } from "ws";
+import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 type Speaker = "rep" | "prospect";
 
@@ -27,6 +27,11 @@ type TranscriptEvent = {
   text: string;
   final?: boolean;
   timestamp?: string;
+};
+
+type SubscribeEvent = {
+  type: "call.subscribe";
+  callId: string;
 };
 
 type CopilotError = {
@@ -96,6 +101,7 @@ const wss = new WebSocketServer({ server, path: "/ws" });
 const openai = new OpenAI({ apiKey: openaiApiKey });
 const agentDispatchClient = new AgentDispatchClient(livekitApiHost, livekitApiKey, livekitApiSecret);
 const calls = new Map<string, CallState>();
+const callSubscribers = new Map<string, Set<WebSocket>>();
 const discoveryStageGuide = [
   {
     stage: "Frame & Disarm",
@@ -138,17 +144,17 @@ const discoveryStagePrompt = discoveryStageGuide
   .map((entry, index) => `${index + 1}. ${entry.stage} — Goal: ${entry.goal} Done when: ${entry.doneWhen}`)
   .join("\n");
 const defaultAnalysis: CopilotAnalysis = {
-  stage: "Find a problem & get into a story",
+  stage: "Frame & Disarm",
   nextQuestions: [
     {
       priority: "medium",
-      question: "Before I say anything about our idea, can you walk me through the last time this came up?",
-      reason: "Starts with their world and pushes toward a concrete recent story."
+      question: "Before I say anything about our idea, can you tell me how this shows up in your world?",
+      reason: "Starts by taking the pitch off the table."
     },
     {
-      priority: "medium",
-      question: "What made that moment painful enough to notice?",
-      reason: "Keeps the call anchored on cost and consequence instead of opinions."
+      priority: "low",
+      question: "I am mostly here to understand, so feel free to tell me where this is not a problem.",
+      reason: "Gives them permission to speak freely."
     }
   ]
 };
@@ -332,29 +338,46 @@ function copilotError(callId: string, error: unknown): CopilotError {
 }
 
 async function runLlmAnalysis(call: CallState): Promise<CopilotAnalysis> {
-  const response = await openai.chat.completions.create({
-    model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
-    temperature: 0.2,
-    response_format: { type: "json_object" },
-    messages: [
-      {
-        role: "system",
-        content:
-          `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage and recommend 1-2 concise next questions or statements. Do not invent facts. Prefer prompts that move the rep toward concrete past behavior, cost, consequence, active search, commitment, and a concrete next step.\n\nDiscovery stages:\n${discoveryStagePrompt}\n\nRespond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}]}. The stage must be exactly one of: ${discoveryStages.join("; ")}.`
-      },
-      {
-        role: "user",
-        content: JSON.stringify({
-          currentStage: call.analysis.stage,
-          facts: call.facts.slice(-8),
-          gaps: [...call.gaps],
-          transcript: call.transcript.slice(-40)
-        })
-      }
-    ]
+  const model = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+  const messages = [
+    {
+      role: "system" as const,
+      content:
+        `You are a sales co-pilot helping a rep navigate a live discovery call. Use the transcript to identify the current stage and recommend 1-2 concise next questions or statements. Do not invent facts. Prefer prompts that move the rep toward concrete past behavior, cost, consequence, active search, commitment, and a concrete next step.\n\nDiscovery stages:\n${discoveryStagePrompt}\n\nRespond only as JSON: {"stage":"one exact stage","nextQuestions":[{"priority":"low|medium|high","question":"...","reason":"..."}]}. The stage must be exactly one of: ${discoveryStages.join("; ")}.`
+    },
+    {
+      role: "user" as const,
+      content: JSON.stringify({
+        currentStage: call.analysis.stage,
+        facts: call.facts.slice(-8),
+        gaps: [...call.gaps],
+        transcript: call.transcript.slice(-40)
+      })
+    }
+  ];
+
+  console.info("llm_analysis_prompt", {
+    model,
+    messages
   });
 
-  return parseCopilotAnalysis(JSON.parse(response.choices[0]?.message?.content ?? "{}"));
+  const response = await openai.chat.completions.create({
+    model,
+    temperature: 0.2,
+    response_format: { type: "json_object" },
+    messages
+  });
+
+  const rawContent = response.choices[0]?.message?.content ?? "{}";
+  const parsedAnalysis = parseCopilotAnalysis(JSON.parse(rawContent));
+  console.info("llm_analysis_response", {
+    model,
+    usage: response.usage,
+    rawContent,
+    parsedAnalysis
+  });
+
+  return parsedAnalysis;
 }
 
 async function analyzeCallIfDue(call: CallState): Promise<CopilotAnalysis> {
@@ -375,11 +398,16 @@ async function analyzeCallIfDue(call: CallState): Promise<CopilotAnalysis> {
   return call.pendingAnalysis;
 }
 
-function parseTranscriptEvent(raw: RawData): TranscriptEvent | null {
+function parseClientMessage(raw: RawData): TranscriptEvent | SubscribeEvent | null {
   const value = JSON.parse(raw.toString()) as unknown;
   if (!value || typeof value !== "object") return null;
 
   const record = value as Record<string, unknown>;
+  if (record.type === "call.subscribe") {
+    const callId = asNonEmptyString(record.callId);
+    return callId ? { type: "call.subscribe", callId } : null;
+  }
+
   if (record.type !== "transcript.turn") return null;
 
   const callId = asNonEmptyString(record.callId);
@@ -398,11 +426,38 @@ function parseTranscriptEvent(raw: RawData): TranscriptEvent | null {
   };
 }
 
+function subscribeSocketToCall(socket: WebSocket, callId: string) {
+  const subscribers = callSubscribers.get(callId) ?? new Set<WebSocket>();
+  subscribers.add(socket);
+  callSubscribers.set(callId, subscribers);
+}
+
+function unsubscribeSocket(socket: WebSocket) {
+  callSubscribers.forEach((subscribers, callId) => {
+    subscribers.delete(socket);
+    if (subscribers.size === 0) {
+      callSubscribers.delete(callId);
+    }
+  });
+}
+
+function sendToCallSubscribers(callId: string, payload: unknown) {
+  const message = JSON.stringify(payload);
+  callSubscribers.get(callId)?.forEach((subscriber) => {
+    if (subscriber.readyState === WebSocket.OPEN) {
+      subscriber.send(message);
+    }
+  });
+}
+
 wss.on("connection", (socket) => {
+  socket.on("close", () => unsubscribeSocket(socket));
   socket.on("message", async (raw) => {
     try {
-      const event = parseTranscriptEvent(raw);
+      const event = parseClientMessage(raw);
       if (!event) return;
+      subscribeSocketToCall(socket, event.callId);
+      if (event.type === "call.subscribe") return;
 
       const call = getCall(event.callId);
       const turn: TranscriptTurn = {
@@ -416,7 +471,7 @@ wss.on("connection", (socket) => {
       updateCallState(call, turn);
       try {
         const analysis = await analyzeCallIfDue(call);
-        socket.send(JSON.stringify({
+        sendToCallSubscribers(event.callId, {
           type: "copilot.update",
           callId: event.callId,
           analysis,
@@ -425,10 +480,10 @@ wss.on("connection", (socket) => {
             facts: call.facts,
             gaps: [...call.gaps]
           }
-        }));
+        });
       } catch (error) {
         console.error("openai_analysis_error", error);
-        socket.send(JSON.stringify(copilotError(event.callId, error)));
+        sendToCallSubscribers(event.callId, copilotError(event.callId, error));
       }
     } catch (error) {
       console.error("ws_error", error);

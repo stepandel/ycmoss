@@ -6,10 +6,10 @@ import {
   ParticipantTile,
   RoomAudioRenderer,
   TrackToggle,
-  useTranscriptions,
+  useRoomContext,
   useTracks
 } from "@livekit/components-react";
-import { Track } from "livekit-client";
+import { RoomEvent, Track, type Participant, type TrackPublication, type TranscriptionSegment } from "livekit-client";
 import {
   BadgeCheck,
   Check,
@@ -212,8 +212,8 @@ const demoTurns: Array<Pick<TranscriptTurn, "speaker" | "text">> = [
 ];
 
 const defaultAnalysis: CopilotAnalysis = {
-  stage: "Find a problem & get into a story",
-  nextQuestions: stagePromptPlaceholders["Find a problem & get into a story"]
+  stage: "Frame & Disarm",
+  nextQuestions: stagePromptPlaceholders["Frame & Disarm"]
 };
 
 function getRouteMode(): RouteMode {
@@ -223,7 +223,10 @@ function getRouteMode(): RouteMode {
 
 function getWebSocketUrl() {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const isViteDevServer = window.location.hostname === "127.0.0.1" && window.location.port === "5173";
+  const isViteDevServer =
+    (window.location.hostname === "127.0.0.1" || window.location.hostname === "localhost") &&
+    window.location.port !== "" &&
+    window.location.port !== "8787";
   const host = isViteDevServer ? "127.0.0.1:8787" : window.location.host;
   return `${protocol}://${host}/ws`;
 }
@@ -239,13 +242,7 @@ function formatClock(isoTimestamp: string) {
 }
 
 function VideoGrid() {
-  const tracks = useTracks(
-    [
-      { source: Track.Source.Camera, withPlaceholder: true },
-      { source: Track.Source.ScreenShare, withPlaceholder: false }
-    ],
-    { onlySubscribed: false }
-  );
+  const tracks = useTracks([Track.Source.Camera, Track.Source.ScreenShare], { onlySubscribed: false });
 
   return (
     <GridLayout tracks={tracks} className="video-grid">
@@ -286,24 +283,35 @@ type LiveTranscriptionBridgeProps = {
 };
 
 function LiveTranscriptionBridge({ onTranscript }: LiveTranscriptionBridgeProps) {
-  const transcriptions = useTranscriptions();
+  const room = useRoomContext();
 
   useEffect(() => {
-    transcriptions.forEach((transcription) => {
-      const segmentId = transcription.streamInfo.attributes?.["lk.segment_id"] ?? transcription.streamInfo.id;
-      const isFinal = transcription.streamInfo.attributes?.["lk.transcription_final"] === "true";
-      const text = transcription.text.trim();
-      if (!text) return;
+    function handleTranscription(
+      segments: TranscriptionSegment[],
+      participant?: Participant,
+      _publication?: TrackPublication
+    ) {
+      if (!participant) return;
 
-      onTranscript({
-        id: segmentId,
-        speaker: speakerFromIdentity(transcription.participantInfo.identity),
-        text,
-        timestamp: new Date().toISOString(),
-        final: isFinal
+      segments.forEach((segment) => {
+        const text = segment.text.trim();
+        if (!text) return;
+
+        onTranscript({
+          id: `${participant.identity}:${segment.id}`,
+          speaker: speakerFromIdentity(participant.identity),
+          text,
+          timestamp: new Date(segment.firstReceivedTime || Date.now()).toISOString(),
+          final: segment.final
+        });
       });
-    });
-  }, [onTranscript, transcriptions]);
+    }
+
+    room.on(RoomEvent.TranscriptionReceived, handleTranscription);
+    return () => {
+      room.off(RoomEvent.TranscriptionReceived, handleTranscription);
+    };
+  }, [onTranscript, room]);
 
   return null;
 }
@@ -333,9 +341,14 @@ export function App() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [copiedLink, setCopiedLink] = useState<RouteMode | null>(null);
   const [revealedStage, setRevealedStage] = useState<DiscoveryStage | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const sentLiveTranscriptIdsRef = useRef<Set<string>>(new Set());
   const callId = roomName;
+  const wsRef = useRef<WebSocket | null>(null);
+  const callIdRef = useRef(callId);
+  const sentLiveTranscriptIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    callIdRef.current = callId;
+  }, [callId]);
 
   useEffect(() => {
     fetch("/api/config")
@@ -354,6 +367,7 @@ export function App() {
     socket.addEventListener("close", () => setConnectionState("disconnected"));
     socket.addEventListener("message", (message) => {
       const event = JSON.parse(message.data);
+      if (event.callId && event.callId !== callIdRef.current) return;
       if (event.type === "copilot.update") {
         setCopilotError("");
         if (event.analysis) {
@@ -366,6 +380,12 @@ export function App() {
     });
     return () => socket.close();
   }, []);
+
+  useEffect(() => {
+    const socket = wsRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({ type: "call.subscribe", callId }));
+  }, [callId, connectionState]);
 
   useEffect(() => {
     if (!token) return;
