@@ -653,6 +653,7 @@ input:focus {
 }
 
 .copilot-head p {
+  margin-top: 3px;
   color: var(--ink-faint);
   font-family: var(--font-mono);
   font-size: 11px;

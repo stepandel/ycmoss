@@ -67,7 +67,11 @@ type Config = {
 type RouteMode = "founder" | "prospect";
 
 // TODO: pull from room metadata / CRM once available
-const prospectName = "Ashil";
+const prospect = {
+  name: "Aashil",
+  title: "Principal Engineer",
+  company: "Oracle"
+};
 
 const defaultOpenGaps = [
   "concrete instance",
@@ -606,7 +610,12 @@ export function App() {
         <aside className="copilot-panel glass reveal d2">
           <header className="copilot-head">
             <span className="copilot-glyph">❖</span>
-            <h2>{prospectName}</h2>
+            <div>
+              <h2>{prospect.name}</h2>
+              <p>
+                {prospect.title} · {prospect.company}
+              </p>
+            </div>
           </header>
 
           <section className="stage-rail">
